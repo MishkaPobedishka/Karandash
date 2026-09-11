@@ -97,9 +97,10 @@ public class RecognitionReplyFormatter {
         return number(min) + "–" + number(max);
     }
 
+    /** Не больше одного знака после запятой, десятичный разделитель — запятая. */
     private static String number(BigDecimal value) {
         return value.setScale(Math.min(Math.max(value.scale(), 0), 1), RoundingMode.HALF_UP)
-                .stripTrailingZeros().toPlainString();
+                .stripTrailingZeros().toPlainString().replace('.', ',');
     }
 
     private static String limit(String value, int maxLength) {

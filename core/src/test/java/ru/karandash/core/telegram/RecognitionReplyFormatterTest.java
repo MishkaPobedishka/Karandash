@@ -17,13 +17,14 @@ class RecognitionReplyFormatterTest {
     void formatsItemsWithRangesAndTotal() {
         String text = formatter.format(new RecognitionResult(List.of(
                 item("Гречка с курицей", "250", "320", 380, 480, "25", "32", "0.7"),
-                item("Хлеб", "30", "30", 70, 80, null, null, "0.9")
+                item("Хлеб", "30", "30", 70, 80, "0.5", "1.25", "0.9")
         ), List.of()));
 
         assertThat(text).contains("Похоже на:")
                 .contains("• Гречка с курицей — 250–320 г, 380–480 ккал")
                 .contains("Б 25–32 г · уверенность 70%")
                 .contains("• Хлеб — 30 г, 70–80 ккал")
+                .contains("Б 0,5–1,3 г · уверенность 90%")
                 .contains("Итого: 450–560 ккал")
                 .contains("пока не записывается");
     }
