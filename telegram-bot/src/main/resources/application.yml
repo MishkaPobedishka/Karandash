@@ -13,6 +13,7 @@ spring:
     port: ${RABBITMQ_PORT:5672}
     username: ${RABBITMQ_USER:karandash}
     password: ${RABBITMQ_PASSWORD:karandash-local}
+    virtual-host: ${RABBITMQ_VHOST:/}
     listener:
       simple:
         # Очередь объявляет ядро; приёмщик ждёт её, а не падает.

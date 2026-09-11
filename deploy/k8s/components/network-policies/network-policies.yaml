@@ -1,5 +1,5 @@
 # Политика на каждый под: разрешены только нужные входящие соединения.
-# База и брокер доступны только с ноды РФ (ядро) и, для брокера, приёмщику — на чтение уведомлений.
+# Брокер общий с Дымоходом и живёт в namespace chimney — его политика (allow-rabbitmq) в репозитории Дымохода.
 apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy
 metadata:
@@ -16,26 +16,6 @@ spec:
               app: core
       ports:
         - port: 5432
----
-apiVersion: networking.k8s.io/v1
-kind: NetworkPolicy
-metadata:
-  name: rabbitmq-from-core-and-bot
-spec:
-  podSelector:
-    matchLabels:
-      app: rabbitmq
-  policyTypes: ["Ingress"]
-  ingress:
-    - from:
-        - podSelector:
-            matchLabels:
-              app: core
-        - podSelector:
-            matchLabels:
-              app: telegram-bot
-      ports:
-        - port: 5672
 ---
 apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy

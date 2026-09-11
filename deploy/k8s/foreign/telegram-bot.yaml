@@ -45,9 +45,11 @@ spec:
                 secretKeyRef:
                   name: karandash-bot
                   key: TELEGRAM_BOT_TOKEN
+            # Брокер Дымохода, vhost karandash; пользователь karandash-bot может только читать q.bot.events.
             - name: RABBITMQ_HOST
-              value: rabbitmq
-            # Отдельный пользователь RabbitMQ: только чтение q.bot.events.
+              value: rabbitmq.chimney.svc.cluster.local
+            - name: RABBITMQ_VHOST
+              value: karandash
             - name: RABBITMQ_USER
               value: karandash-bot
             - name: RABBITMQ_PASSWORD

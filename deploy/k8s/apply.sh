@@ -51,6 +51,12 @@ if [ -n "$missing" ]; then
   exit 1
 fi
 
-# 4. Манифесты.
+# 4. Брокер общий с Дымоходом: vhost и пользователи Карандаша заводятся заранее (README, «RabbitMQ Дымохода»).
+if ! kubectl -n chimney exec statefulset/rabbitmq -- rabbitmqctl -q list_vhosts 2>/dev/null | grep -qx karandash; then
+  echo "Стоп: в RabbitMQ Дымохода нет vhost karandash — заведите его и пользователей по README." >&2
+  exit 1
+fi
+
+# 5. Манифесты.
 kubectl apply -k "$DIR"
 kubectl -n "$NAMESPACE" get pods -o wide

@@ -51,14 +51,17 @@ spec:
                 secretKeyRef:
                   name: karandash-db
                   key: POSTGRES_PASSWORD
+            # Брокер Дымохода, vhost karandash: права пользователя karandash-core — только внутри него.
             - name: RABBITMQ_HOST
-              value: rabbitmq
-            - name: RABBITMQ_USER
+              value: rabbitmq.chimney.svc.cluster.local
+            - name: RABBITMQ_VHOST
               value: karandash
+            - name: RABBITMQ_USER
+              value: karandash-core
             - name: RABBITMQ_PASSWORD
               valueFrom:
                 secretKeyRef:
-                  name: karandash-db
+                  name: karandash-core
                   key: RABBITMQ_PASSWORD
             - name: CORE_SERVICE_TOKEN
               valueFrom:
