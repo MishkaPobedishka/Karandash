@@ -1,0 +1,48 @@
+server:
+  port: ${AGENT_ADAPTER_PORT:8095}
+
+spring:
+  application:
+    name: karandash-agent-adapter
+  threads:
+    virtual:
+      enabled: true
+  servlet:
+    multipart:
+      max-file-size: 10MB
+      max-request-size: 11MB
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info,prometheus
+  endpoint:
+    health:
+      probes:
+        enabled: true
+      group:
+        readiness:
+          include: readinessState,agentCli
+
+karandash:
+  agent:
+    service-token: ${AGENT_SERVICE_TOKEN:}
+    # claude | codex
+    cli: ${AGENT_CLI:claude}
+    timeout: ${AGENT_TIMEOUT:120s}
+    max-concurrent-calls: ${AGENT_MAX_CONCURRENT_CALLS:2}
+    queue-timeout: ${AGENT_QUEUE_TIMEOUT:30s}
+    max-output-bytes: ${AGENT_MAX_OUTPUT_BYTES:1048576}
+    max-text-length: 2000
+    max-photo-size: 10MB
+    work-dir: ${AGENT_WORK_DIR:${java.io.tmpdir}/karandash-agent}
+    health-cache-ttl: 60s
+    claude:
+      command: ${AGENT_CLAUDE_COMMAND:claude}
+      model: ${AGENT_CLAUDE_MODEL:sonnet}
+      effort: ${AGENT_CLAUDE_EFFORT:}
+      max-budget-usd: ${AGENT_CLAUDE_MAX_BUDGET_USD:0.25}
+    codex:
+      command: ${AGENT_CODEX_COMMAND:codex}
+      model: ${AGENT_CODEX_MODEL:}
