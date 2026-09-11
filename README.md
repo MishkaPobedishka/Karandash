@@ -45,7 +45,7 @@ flowchart LR
 
 `AI_PROVIDER` (`karandash.ai.provider`): `disabled` — по умолчанию, `openai-compatible` — прежний OpenAI-совместимый адаптер (`GPT_*`), `agent` — агент-адаптер. Прежний флаг `GPT_ENABLED=true` заменён на `AI_PROVIDER=openai-compatible`.
 
-Агент-адаптер: `AGENT_CLI=claude|codex`, модель — `AGENT_CLAUDE_MODEL` или `AGENT_CODEX_MODEL`. Образ собирается с `claude` 2.1.268; Codex ставится аргументом сборки `CODEX_VERSION`.
+Агент-адаптер: `AGENT_CLI=claude|codex`, модель — `AGENT_CLAUDE_MODEL` или `AGENT_CODEX_MODEL`. Образ собирается с `claude` 2.1.268; Codex ставится аргументом сборки `CODEX_VERSION`. Реализация для `claude` проверена на настоящем CLI, для `codex` — только на фейковом: до боевого использования её нужно проверить на настоящем бинарнике.
 
 Секреты не должны попадать в Git. Фотографии обрабатываются в памяти и не сохраняются.
 

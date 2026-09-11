@@ -31,6 +31,8 @@ public class AgentConfiguration {
     @Bean
     @ConditionalOnProperty(name = "karandash.agent.cli", havingValue = "codex")
     AgentCli codexCli(AgentProperties properties, ObjectMapper objectMapper) {
+        log.warn("Выбран codex exec: реализация проверена только фейковым CLI. До боевого использования "
+                + "проверьте на настоящем бинарнике, что shell, файлы и сеть модели недоступны");
         return new CodexCli(properties.codex(), objectMapper);
     }
 
