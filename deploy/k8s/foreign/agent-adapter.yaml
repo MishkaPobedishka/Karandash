@@ -52,10 +52,9 @@ spec:
               value: claude
             - name: AGENT_CLAUDE_MODEL
               value: sonnet
-            # Зарубежная нода Дымохода — 2 ГБ на всё: один вызов CLI за раз. После расширения ноды до 4 ГБ —
-            # "2" и limits.memory 1280Mi.
+            # Зарубежная нода — Валера (Алматы), 4 vCPU и 7,8 ГБ: два вызова CLI одновременно.
             - name: AGENT_MAX_CONCURRENT_CALLS
-              value: "1"
+              value: "2"
             # Учётные данные CLI — только из секрета, в образе их нет. Для продукта — API-ключ.
             - name: ANTHROPIC_API_KEY
               valueFrom:
@@ -98,7 +97,7 @@ spec:
               cpu: 250m
               memory: 512Mi
             limits:
-              memory: 1Gi
+              memory: 1280Mi
           securityContext:
             allowPrivilegeEscalation: false
             readOnlyRootFilesystem: true

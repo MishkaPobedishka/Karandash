@@ -6,8 +6,8 @@
 |---|---|---|---|
 | `postgres` (StatefulSet, PVC 5 Gi) | `pythagoras`, РФ | персональные данные | `karandash-db` |
 | `core` | `pythagoras`, РФ | единственный с доступом к базе | `karandash-db`, `karandash-core` |
-| `agent-adapter` | `v749216.hosted-by-vdsina.com`, зарубежная | без состояния, `/tmp` в памяти | `karandash-agent` |
-| `telegram-bot` (1 реплика, `Recreate`) | `v749216.hosted-by-vdsina.com`, зарубежная | без состояния, без Service | `karandash-bot` |
+| `agent-adapter` | `n8n-hassle` (Валера, Алматы), зарубежная | без состояния, `/tmp` в памяти | `karandash-agent` |
+| `telegram-bot` (1 реплика, `Recreate`) | `n8n-hassle` (Валера, Алматы), зарубежная | без состояния, без Service | `karandash-bot` |
 | RabbitMQ — общий, Дымохода (`chimney/rabbitmq`) | `pythagoras`, РФ | vhost `karandash` | пароли в `karandash-core`, `karandash-bot` |
 
 Под получает только свой секрет, а kubelet ноды видит лишь секреты её подов — пароль базы на зарубежную ноду не попадает.
@@ -23,7 +23,7 @@
   grep -i flannel /etc/rancher/k3s/config.yaml
   ```
   WireGuard на весь кластер — `flannel-backend: wireguard-native` в `/etc/rancher/k3s/config.yaml`, UDP 51820 между нодами, перезапуск k3s на обеих нодах — закрывает и Дымоход. Альтернатива — TLS внутри Карандаша (доработка кода). `apply.sh` при VXLAN останавливается; пробный выкат без пользователей — только с `KARANDASH_ALLOW_PLAINTEXT_INTERNODE=1`.
-- [ ] **Запас памяти на зарубежной ноде.** Там 2 vCPU и 2 ГБ, из которых уже заняты AI Service Дымохода (limit 1 Gi), Grafana, Promtail и k3s-agent. Поды Карандаша просят 704 Mi, их лимит — 1,4 Gi. Поэтому агент настроен на один вызов CLI за раз (`AGENT_MAX_CONCURRENT_CALLS=1`, limit 1 Gi; в простое он занимает около 256 Mi). После расширения ноды до 4 ГБ — `2` и 1280 Mi. После выката смотреть `kubectl top node`.
+- [ ] **Зарубежная нода подключена к кластеру.** Это `n8n-hassle` (Валера, Алматы): 4 vCPU, 7,8 ГБ, свободно около 4,3 ГБ — с запасом под два параллельных вызова агента (`AGENT_MAX_CONCURRENT_CALLS=2`, limit 1280 Mi; в простое агент занимает около 256 Mi). Порядок подключения — ниже, раздел «Зарубежная нода». На сервере живут n8n, Jitsi и VPN: после выката смотреть `kubectl top node` и что рабочим сервисам хватает памяти.
 - [ ] **Доступ к брокеру Дымохода из namespace `karandash`.** Политика `allow-rabbitmq` Дымохода перечисляет свои поды и `ipBlock 0.0.0.0/0`. Если подключение из `karandash` всё же режется, добавить в неё `namespaceSelector` `kubernetes.io/metadata.name: karandash` — это правка в репозитории Дымохода.
 - [ ] **Сетевые политики Карандаша** (`components/network-policies`) включены и проверены на кластере: без них изоляцию держат только разные секреты, а не сеть.
 - [ ] **`AGENT_CLI=codex`** включается только после проверки на настоящем `codex exec`, что shell, файлы и сеть модели недоступны: сейчас реализация проверена лишь фейковым CLI. По умолчанию — `claude`.
@@ -36,8 +36,10 @@
 
 ```sh
 kubectl label node pythagoras karandash/region=ru
-kubectl label node v749216.hosted-by-vdsina.com karandash/region=foreign
+kubectl label node n8n-hassle karandash/region=foreign
 ```
+
+Метку `karandash/region=foreign` держит ровно одна нода: поды Карандаша поедут туда, а нода `v749216.hosted-by-vdsina.com` остаётся Дымоходу.
 
 **RabbitMQ Дымохода** — отдельный vhost и два пользователя. Ядру — полные права только в своём vhost: оно объявляет обменники и очереди. Приёмщику — только чтение своей очереди. Данные брокера лежат на PVC, поэтому vhost и пользователи переживают перезапуск.
 
@@ -49,8 +51,6 @@ kubectl -n chimney exec statefulset/rabbitmq -- rabbitmqctl add_user karandash-b
 kubectl -n chimney exec statefulset/rabbitmq -- rabbitmqctl set_permissions -p karandash karandash-bot '^$' '^$' '^q\.bot\.events$'
 ```
 
-Реестр: зарубежная нода уже тянет `localhost:5000` с `pythagoras` через `/etc/rancher/k3s/registries.yaml` — делать ничего не нужно.
-
 Секреты — вне git и вне ArgoCD, как `chimney-secrets` у Дымохода:
 1. `kubectl apply -f deploy/k8s/namespace.yaml`.
 2. Скопировать `secrets.example.yaml` за пределы репозитория и заполнить. Пароли и сервисные токены — `openssl rand -hex 32`. `CORE_SERVICE_TOKEN` и `AGENT_SERVICE_TOKEN` совпадают в секретах обеих сторон.
@@ -58,6 +58,59 @@ kubectl -n chimney exec statefulset/rabbitmq -- rabbitmqctl set_permissions -p k
 4. `kubectl apply -f <заполненный файл>`.
 
 Бот в Telegram — токен от `@BotFather` в `karandash-bot/TELEGRAM_BOT_TOKEN`. Webhook у бота должен быть выключен: при нём `getUpdates` отвечает 409.
+
+## Зарубежная нода: подключение Валеры
+
+Валера — `n8n-hassle.steep-man.ru` (199.189.255.107, Алматы, Ubuntu 24.04). На нём работают n8n, Jitsi, синхронизация Обсидиана, документация и VPN — их трогать нельзя. Проверено 12.09 только чтением: 4 vCPU, 7,8 ГБ памяти (свободно около 4,3 ГБ), 30 ГБ диска; порты 6443, 8472, 10250 и 51820 свободны; модуль WireGuard в ядре есть; `net.ipv4.ip_forward=1`; время синхронизировано; `84.38.189.217:6443` и `:5000` с него доступны; k3s не установлен.
+
+Что учесть:
+
+- ufw на Валере: `deny (routed)`, а у Docker политика `FORWARD DROP`. Без правил из шага 2 поды не смогут общаться.
+- Порты 80 и 443 заняты Caddy и hysteria, поэтому нода подключается **агентом**: свой ingress агент не поднимает.
+- NodePort-сервисы Дымохода (например, RabbitMQ на 30672) после подключения начнут слушать и на Валере. Снаружи их закрывает ufw — не открывайте эти порты.
+- Реестр образов `localhost:5000` доступен по HTTP без авторизации через интернет: на маршруте образ можно подменить. Пока это не закрыто, для Карандаша безопаснее собирать образы прямо на Валере и импортировать в k3s:
+  ```sh
+  sudo docker build -f agent-adapter/Dockerfile -t localhost:5000/karandash-agent-adapter:latest .
+  sudo docker save localhost:5000/karandash-agent-adapter:latest | sudo k3s ctr images import -
+  ```
+  и поставить подам `imagePullPolicy: IfNotPresent`. Иначе — закрыть реестр htpasswd и TLS.
+
+Порядок. Каждый шаг проверять до перехода к следующему.
+
+1. **WireGuard на кластере — на `pythagoras`.** В `/etc/rancher/k3s/config.yaml` добавить `flannel-backend: wireguard-native`, разрешить UDP 51820 с адреса Валеры, затем `sudo systemctl restart k3s`. Проверка: `ip link show flannel-wg`. Сеть подов кластера на время перезапуска прервётся, поэтому делать в тихое окно. На ноде `v749216` после этого — `sudo systemctl restart k3s-agent`. Если поды перестали видеть друг друга, ноды нужно перезагрузить: старый интерфейс `flannel.1` остаётся.
+2. **ufw на Валере.**
+   ```sh
+   sudo ufw allow from 84.38.189.217 to any port 51820 proto udp   # flannel WireGuard
+   sudo ufw allow from 84.38.189.217 to any port 10250 proto tcp   # kubelet: логи, exec, метрики
+   sudo ufw route allow from 10.42.0.0/16
+   sudo ufw route allow to 10.42.0.0/16
+   ```
+   Если кластер остаётся на VXLAN, вместо 51820 открыть 8472/udp.
+3. **Токен ноды** — на `pythagoras`: `sudo cat /var/lib/rancher/k3s/server/node-token`. Это секрет: в репозиторий и в переписку не попадает.
+4. **Агент на Валере.** Версию k3s взять ту же, что на `pythagoras` (`k3s --version`):
+   ```sh
+   curl -sfL https://get.k3s.io | INSTALL_K3S_VERSION='<версия с pythagoras>' \
+     K3S_URL=https://84.38.189.217:6443 K3S_TOKEN='<токен>' sh -s - agent \
+     --node-name n8n-hassle --node-label karandash/region=foreign
+   ```
+   Если kubelet не стартует из-за свопа — добавить `--kubelet-arg=fail-swap-on=false`.
+5. **Реестр** (если образы всё же тянутся с `pythagoras`) — `/etc/rancher/k3s/registries.yaml` на Валере, как на ноде `v749216`:
+   ```yaml
+   mirrors:
+     "localhost:5000":
+       endpoint:
+         - "http://84.38.189.217:5000"
+   ```
+   затем `sudo systemctl restart k3s-agent`.
+6. **Проверка с `pythagoras`:**
+   ```sh
+   kubectl get nodes -o wide
+   kubectl get node n8n-hassle --show-labels
+   kubectl top node
+   ```
+   На самой Валере рабочие сервисы должны отвечать как раньше: `sudo docker ps`, n8n и документация открываются.
+
+Откат: на Валере `sudo /usr/local/bin/k3s-agent-uninstall.sh`, затем снять добавленные правила ufw (`sudo ufw status numbered` и `sudo ufw delete <номер>`). Рабочие сервисы сервера это не затрагивает.
 
 ## Выкат
 
