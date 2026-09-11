@@ -1,0 +1,110 @@
+# Ядро — нода РФ: единственный сервис с доступом к базе. Внутренний API закрыт сервисным токеном.
+apiVersion: v1
+kind: Service
+metadata:
+  name: core
+spec:
+  selector:
+    app: core
+  ports:
+    - name: http
+      port: 8080
+      targetPort: 8080
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: core
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: core
+  template:
+    metadata:
+      labels:
+        app: core
+    spec:
+      nodeSelector:
+        karandash/region: ru
+      automountServiceAccountToken: false
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 10001
+        runAsGroup: 10001
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: core
+          image: karandash-core
+          imagePullPolicy: Always
+          ports:
+            - name: http
+              containerPort: 8080
+          env:
+            - name: DATABASE_URL
+              value: jdbc:postgresql://postgres:5432/karandash
+            - name: POSTGRES_USER
+              value: karandash
+            - name: POSTGRES_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: karandash-db
+                  key: POSTGRES_PASSWORD
+            - name: RABBITMQ_HOST
+              value: rabbitmq
+            - name: RABBITMQ_USER
+              value: karandash
+            - name: RABBITMQ_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: karandash-db
+                  key: RABBITMQ_PASSWORD
+            - name: CORE_SERVICE_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: karandash-core
+                  key: CORE_SERVICE_TOKEN
+            - name: AI_PROVIDER
+              value: agent
+            - name: AGENT_BASE_URL
+              value: http://agent-adapter:8095
+            - name: AGENT_SERVICE_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: karandash-core
+                  key: AGENT_SERVICE_TOKEN
+          startupProbe:
+            httpGet:
+              path: /actuator/health/liveness
+              port: http
+            periodSeconds: 5
+            failureThreshold: 36
+          livenessProbe:
+            httpGet:
+              path: /actuator/health/liveness
+              port: http
+            periodSeconds: 20
+          readinessProbe:
+            httpGet:
+              path: /actuator/health/readiness
+              port: http
+            periodSeconds: 10
+          resources:
+            requests:
+              cpu: 200m
+              memory: 384Mi
+            limits:
+              memory: 768Mi
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: ["ALL"]
+          volumeMounts:
+            - name: tmp
+              mountPath: /tmp
+      volumes:
+        - name: tmp
+          emptyDir:
+            sizeLimit: 128Mi

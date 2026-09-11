@@ -1,0 +1,112 @@
+# Агент-адаптер — зарубежная нода. Без базы и без состояния: фото и промпты живут только
+# во временном каталоге вызова в памяти (/tmp — emptyDir на tmpfs) и удаляются после вызова.
+apiVersion: v1
+kind: Service
+metadata:
+  name: agent-adapter
+spec:
+  selector:
+    app: agent-adapter
+  ports:
+    - name: http
+      port: 8095
+      targetPort: 8095
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: agent-adapter
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: agent-adapter
+  template:
+    metadata:
+      labels:
+        app: agent-adapter
+    spec:
+      nodeSelector:
+        karandash/region: foreign
+      automountServiceAccountToken: false
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 10001
+        runAsGroup: 10001
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: agent-adapter
+          image: karandash-agent-adapter
+          imagePullPolicy: Always
+          ports:
+            - name: http
+              containerPort: 8095
+          env:
+            - name: AGENT_SERVICE_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: karandash-agent
+                  key: AGENT_SERVICE_TOKEN
+            - name: AGENT_CLI
+              value: claude
+            - name: AGENT_CLAUDE_MODEL
+              value: sonnet
+            - name: AGENT_MAX_CONCURRENT_CALLS
+              value: "2"
+            # Учётные данные CLI — только из секрета, в образе их нет. Для продукта — API-ключ.
+            - name: ANTHROPIC_API_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: karandash-agent
+                  key: ANTHROPIC_API_KEY
+                  optional: true
+            - name: CLAUDE_CODE_OAUTH_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: karandash-agent
+                  key: CLAUDE_CODE_OAUTH_TOKEN
+                  optional: true
+            - name: CODEX_API_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: karandash-agent
+                  key: CODEX_API_KEY
+                  optional: true
+          startupProbe:
+            httpGet:
+              path: /actuator/health/liveness
+              port: http
+            periodSeconds: 5
+            failureThreshold: 24
+          livenessProbe:
+            httpGet:
+              path: /actuator/health/liveness
+              port: http
+            periodSeconds: 20
+          # readiness включает проверку CLI: нет учётных данных или провайдер их отклонил — под не готов.
+          readinessProbe:
+            httpGet:
+              path: /actuator/health/readiness
+              port: http
+            periodSeconds: 15
+            timeoutSeconds: 25
+          resources:
+            requests:
+              cpu: 250m
+              memory: 512Mi
+            limits:
+              memory: 1280Mi
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: ["ALL"]
+          volumeMounts:
+            - name: tmp
+              mountPath: /tmp
+      volumes:
+        - name: tmp
+          emptyDir:
+            medium: Memory
+            sizeLimit: 512Mi

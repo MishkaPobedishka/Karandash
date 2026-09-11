@@ -48,7 +48,96 @@ services:
     ports:
       - "3000:3000"
 
+  # Ядро: в кластере — нода РФ, рядом с PostgreSQL и RabbitMQ.
+  core:
+    build:
+      context: .
+      dockerfile: core/Dockerfile
+    image: karandash-core:local
+    depends_on:
+      postgres:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+    environment:
+      DATABASE_URL: jdbc:postgresql://postgres:5432/${POSTGRES_DB:-karandash}
+      POSTGRES_USER: ${POSTGRES_USER:-karandash}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-karandash-local}
+      RABBITMQ_HOST: rabbitmq
+      RABBITMQ_USER: ${RABBITMQ_USER:-karandash}
+      RABBITMQ_PASSWORD: ${RABBITMQ_PASSWORD:-karandash-local}
+      CORE_SERVICE_TOKEN: ${CORE_SERVICE_TOKEN:-}
+      AI_PROVIDER: ${AI_PROVIDER:-agent}
+      AGENT_BASE_URL: http://agent-adapter:8095
+      AGENT_SERVICE_TOKEN: ${AGENT_SERVICE_TOKEN:-}
+      GPT_BASE_URL: ${GPT_BASE_URL:-https://example.invalid/v1}
+      GPT_API_KEY: ${GPT_API_KEY:-}
+      GPT_VISION_MODEL: ${GPT_VISION_MODEL:-}
+      GPT_TEXT_MODEL: ${GPT_TEXT_MODEL:-}
+      PROTOTYPE_ENABLED: ${PROTOTYPE_ENABLED:-false}
+    ports:
+      - "127.0.0.1:${CORE_HOST_PORT:-8080}:8080"
+    read_only: true
+    tmpfs:
+      - /tmp
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+
+  # Агент-адаптер: в кластере — зарубежная нода. Без базы, ничего не хранит.
+  agent-adapter:
+    build:
+      context: .
+      dockerfile: agent-adapter/Dockerfile
+    image: karandash-agent-adapter:local
+    environment:
+      AGENT_SERVICE_TOKEN: ${AGENT_SERVICE_TOKEN:-}
+      AGENT_CLI: ${AGENT_CLI:-claude}
+      AGENT_CLAUDE_MODEL: ${AGENT_CLAUDE_MODEL:-sonnet}
+      AGENT_CLAUDE_EFFORT: ${AGENT_CLAUDE_EFFORT:-}
+      AGENT_CODEX_MODEL: ${AGENT_CODEX_MODEL:-}
+      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
+      CLAUDE_CODE_OAUTH_TOKEN: ${CLAUDE_CODE_OAUTH_TOKEN:-}
+      CODEX_API_KEY: ${CODEX_API_KEY:-}
+    ports:
+      - "127.0.0.1:${AGENT_HOST_PORT:-8095}:8095"
+    read_only: true
+    tmpfs:
+      - /tmp:size=512m
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+
+  # Приёмщик Telegram: в кластере — зарубежная нода, одна реплика. Без базы, ничего не хранит.
+  telegram-bot:
+    build:
+      context: .
+      dockerfile: telegram-bot/Dockerfile
+    image: karandash-telegram-bot:local
+    depends_on:
+      core:
+        condition: service_started
+      rabbitmq:
+        condition: service_healthy
+    environment:
+      CORE_BASE_URL: http://core:8080
+      CORE_SERVICE_TOKEN: ${CORE_SERVICE_TOKEN:-}
+      TELEGRAM_BOT_TOKEN: ${TELEGRAM_BOT_TOKEN:-}
+      RABBITMQ_HOST: rabbitmq
+      RABBITMQ_USER: ${RABBITMQ_USER:-karandash}
+      RABBITMQ_PASSWORD: ${RABBITMQ_PASSWORD:-karandash-local}
+    ports:
+      - "127.0.0.1:${BOT_HOST_PORT:-8081}:8081"
+    read_only: true
+    tmpfs:
+      - /tmp
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+
 volumes:
   postgres-data:
   grafana-data:
-

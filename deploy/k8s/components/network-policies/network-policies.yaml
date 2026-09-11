@@ -1,0 +1,83 @@
+# Политика на каждый под: разрешены только нужные входящие соединения.
+# База и брокер доступны только с ноды РФ (ядро) и, для брокера, приёмщику — на чтение уведомлений.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: postgres-from-core
+spec:
+  podSelector:
+    matchLabels:
+      app: postgres
+  policyTypes: ["Ingress"]
+  ingress:
+    - from:
+        - podSelector:
+            matchLabels:
+              app: core
+      ports:
+        - port: 5432
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: rabbitmq-from-core-and-bot
+spec:
+  podSelector:
+    matchLabels:
+      app: rabbitmq
+  policyTypes: ["Ingress"]
+  ingress:
+    - from:
+        - podSelector:
+            matchLabels:
+              app: core
+        - podSelector:
+            matchLabels:
+              app: telegram-bot
+      ports:
+        - port: 5672
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: core-from-bot
+spec:
+  podSelector:
+    matchLabels:
+      app: core
+  policyTypes: ["Ingress"]
+  ingress:
+    - from:
+        - podSelector:
+            matchLabels:
+              app: telegram-bot
+      ports:
+        - port: 8080
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: agent-adapter-from-core
+spec:
+  podSelector:
+    matchLabels:
+      app: agent-adapter
+  policyTypes: ["Ingress"]
+  ingress:
+    - from:
+        - podSelector:
+            matchLabels:
+              app: core
+      ports:
+        - port: 8095
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: telegram-bot-no-ingress
+spec:
+  podSelector:
+    matchLabels:
+      app: telegram-bot
+  policyTypes: ["Ingress"]
+  ingress: []

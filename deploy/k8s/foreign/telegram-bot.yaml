@@ -1,0 +1,92 @@
+# Приёмщик Telegram — зарубежная нода, ровно одна реплика: второй long polling получит от Telegram 409.
+# Без базы и без Service: наружу ничего не открыто, апдейты забираются исходящим getUpdates.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: telegram-bot
+spec:
+  replicas: 1
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app: telegram-bot
+  template:
+    metadata:
+      labels:
+        app: telegram-bot
+    spec:
+      nodeSelector:
+        karandash/region: foreign
+      automountServiceAccountToken: false
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 10001
+        runAsGroup: 10001
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: telegram-bot
+          image: karandash-telegram-bot
+          imagePullPolicy: Always
+          ports:
+            - name: http
+              containerPort: 8081
+          env:
+            - name: CORE_BASE_URL
+              value: http://core:8080
+            - name: CORE_SERVICE_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: karandash-bot
+                  key: CORE_SERVICE_TOKEN
+            - name: TELEGRAM_BOT_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: karandash-bot
+                  key: TELEGRAM_BOT_TOKEN
+            - name: RABBITMQ_HOST
+              value: rabbitmq
+            # Отдельный пользователь RabbitMQ: только чтение q.bot.events.
+            - name: RABBITMQ_USER
+              value: karandash-bot
+            - name: RABBITMQ_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: karandash-bot
+                  key: RABBITMQ_PASSWORD
+          startupProbe:
+            httpGet:
+              path: /actuator/health/liveness
+              port: http
+            periodSeconds: 5
+            failureThreshold: 24
+          livenessProbe:
+            httpGet:
+              path: /actuator/health/liveness
+              port: http
+            periodSeconds: 20
+          readinessProbe:
+            httpGet:
+              path: /actuator/health/readiness
+              port: http
+            periodSeconds: 15
+          resources:
+            requests:
+              cpu: 100m
+              memory: 192Mi
+            limits:
+              memory: 384Mi
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: ["ALL"]
+          volumeMounts:
+            - name: tmp
+              mountPath: /tmp
+      volumes:
+        - name: tmp
+          emptyDir:
+            medium: Memory
+            sizeLimit: 64Mi
