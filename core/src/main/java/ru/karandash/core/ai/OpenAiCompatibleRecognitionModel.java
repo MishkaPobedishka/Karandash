@@ -5,6 +5,8 @@ import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.springframework.http.MediaType;
 import org.springframework.web.client.RestClient;
+import ru.karandash.contracts.ai.RecognitionContract;
+import ru.karandash.contracts.ai.RecognitionContractException;
 import ru.karandash.contracts.ai.RecognitionResult;
 
 import java.util.Base64;
@@ -12,16 +14,6 @@ import java.util.List;
 import java.util.Map;
 
 final class OpenAiCompatibleRecognitionModel implements RecognitionModel {
-
-    private static final String SYSTEM_PROMPT = """
-            Ты оцениваешь состав обычной еды для личного дневника питания.
-            Верни только JSON с массивами items и questions. Для каждой позиции укажи:
-            name, portion_g_min, portion_g_max, kcal_min, kcal_max,
-            protein_g_min, protein_g_max, fat_g_min, fat_g_max,
-            carbs_g_min, carbs_g_max, confidence от 0 до 1.
-            Не создавай ложную точность. Если оценка невозможна, не выдумывай числа,
-            оставь items пустым и задай не более двух коротких уточняющих вопросов.
-            """;
 
     private final AiProperties properties;
     private final RestClient restClient;
@@ -56,7 +48,7 @@ final class OpenAiCompatibleRecognitionModel implements RecognitionModel {
         String safeContentType = contentType == null || contentType.isBlank() ? "image/jpeg" : contentType;
         String dataUrl = "data:" + safeContentType + ";base64," + Base64.getEncoder().encodeToString(image);
         List<Map<String, Object>> content = List.of(
-                Map.of("type", "text", "text", "Распознай блюда, ингредиенты и диапазоны порций на фотографии."),
+                Map.of("type", "text", "text", RecognitionContract.PHOTO_REQUEST),
                 Map.of("type", "image_url", "image_url", Map.of("url", dataUrl))
         );
         return call(requireSetting(properties.visionModel(), "vision-model"), content);
@@ -68,7 +60,7 @@ final class OpenAiCompatibleRecognitionModel implements RecognitionModel {
                 "temperature", 0,
                 "response_format", Map.of("type", "json_object"),
                 "messages", List.of(
-                        Map.of("role", "system", "content", SYSTEM_PROMPT),
+                        Map.of("role", "system", "content", RecognitionContract.MODEL_INSTRUCTIONS),
                         Map.of("role", "user", "content", userContent)
                 )
         );
@@ -87,43 +79,17 @@ final class OpenAiCompatibleRecognitionModel implements RecognitionModel {
             if (content.isBlank()) {
                 throw new ModelUnavailableException("В ответе слоя модели нет результата распознавания");
             }
-            return validate(objectMapper.readValue(stripCodeFence(content), RecognitionResult.class));
+            return RecognitionContract.validate(
+                    objectMapper.readValue(RecognitionContract.stripCodeFence(content), RecognitionResult.class));
         } catch (JsonProcessingException exception) {
             throw new ModelUnavailableException("Слой модели вернул некорректный JSON", exception);
+        } catch (RecognitionContractException exception) {
+            throw new ModelUnavailableException(exception.getMessage(), exception);
         } catch (ModelUnavailableException exception) {
             throw exception;
         } catch (RuntimeException exception) {
             throw new ModelUnavailableException("Не удалось вызвать слой модели", exception);
         }
-    }
-
-    private RecognitionResult validate(RecognitionResult result) {
-        if (result.items() == null || result.questions() == null || result.questions().size() > 2) {
-            throw new ModelUnavailableException("Результат распознавания не соответствует контракту");
-        }
-        result.items().forEach(item -> {
-            if (item.name() == null || item.name().isBlank()
-                    || item.kcalMin() == null || item.kcalMax() == null
-                    || item.kcalMin() < 0 || item.kcalMax() < item.kcalMin()
-                    || item.confidence() == null
-                    || item.confidence().signum() < 0
-                    || item.confidence().compareTo(java.math.BigDecimal.ONE) > 0) {
-                throw new ModelUnavailableException("Позиция распознавания не соответствует контракту");
-            }
-        });
-        return result;
-    }
-
-    private String stripCodeFence(String value) {
-        String trimmed = value.trim();
-        if (!trimmed.startsWith("```")) {
-            return trimmed;
-        }
-        int firstLineEnd = trimmed.indexOf('\n');
-        int lastFence = trimmed.lastIndexOf("```");
-        return firstLineEnd >= 0 && lastFence > firstLineEnd
-                ? trimmed.substring(firstLineEnd + 1, lastFence).trim()
-                : trimmed;
     }
 
     private String requireSetting(String value, String name) {
@@ -133,4 +99,3 @@ final class OpenAiCompatibleRecognitionModel implements RecognitionModel {
         return value;
     }
 }
-
