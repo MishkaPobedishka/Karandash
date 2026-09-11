@@ -1,4 +1,4 @@
-package ru.karandash.sdmenu;
+package ru.karandash.tavern;
 
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.RequestMapping;
@@ -7,12 +7,12 @@ import ru.karandash.contracts.menu.AdapterStatusResponse;
 import ru.karandash.contracts.menu.MenuSource;
 
 @RestController
-@RequestMapping("/stub")
-public class SdMenuStubController {
+@RequestMapping({"/stub", "/sd-menu/stub"})
+public class TavernStubController {
 
     @GetMapping("/status")
     AdapterStatusResponse status() {
-        return AdapterStatusResponse.stub(MenuSource.SD_MENU);
+        return AdapterStatusResponse.stub(MenuSource.TAVERN);
     }
 }
 

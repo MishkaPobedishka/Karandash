@@ -1,0 +1,4 @@
+server.port: ${YANDEX_LAVKA_PORT:${LAVKA_PORT:8092}}
+spring.application.name: karandash-yandex-lavka
+management.endpoints.web.exposure.include: health,info,prometheus
+

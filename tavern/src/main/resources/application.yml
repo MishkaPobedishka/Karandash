@@ -1,0 +1,4 @@
+server.port: ${TAVERN_PORT:${SD_MENU_PORT:8091}}
+spring.application.name: karandash-tavern
+management.endpoints.web.exposure.include: health,info,prometheus
+

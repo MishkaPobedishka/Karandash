@@ -1,12 +1,12 @@
-package ru.karandash.sdmenu;
+package ru.karandash.yandexlavka;
 
 import org.springframework.boot.SpringApplication;
 import org.springframework.boot.autoconfigure.SpringBootApplication;
 
 @SpringBootApplication
-public class SdMenuApplication {
+public class YandexLavkaApplication {
     public static void main(String[] args) {
-        SpringApplication.run(SdMenuApplication.class, args);
+        SpringApplication.run(YandexLavkaApplication.class, args);
     }
 }
 

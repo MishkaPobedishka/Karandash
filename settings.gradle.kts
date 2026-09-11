@@ -4,9 +4,8 @@ include(
     "contracts",
     "core",
     "telegram-bot",
-    "sd-menu",
-    "lavka",
+    "tavern",
+    "yandex-lavka",
     "samokat",
     "lifemart",
 )
-

@@ -1,4 +1,0 @@
-server.port: ${SD_MENU_PORT:8091}
-spring.application.name: karandash-sd-menu
-management.endpoints.web.exposure.include: health,info,prometheus
-
