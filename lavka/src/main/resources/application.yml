@@ -1,0 +1,4 @@
+server.port: ${LAVKA_PORT:8092}
+spring.application.name: karandash-lavka
+management.endpoints.web.exposure.include: health,info,prometheus
+

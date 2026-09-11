@@ -1,0 +1,26 @@
+server:
+  port: ${TELEGRAM_BOT_PORT:8081}
+
+spring:
+  application:
+    name: karandash-telegram-bot
+  datasource:
+    url: ${BOT_DATABASE_URL:jdbc:postgresql://localhost:5432/karandash}
+    username: ${POSTGRES_USER:karandash}
+    password: ${POSTGRES_PASSWORD:karandash-local}
+  rabbitmq:
+    host: ${RABBITMQ_HOST:localhost}
+    port: ${RABBITMQ_PORT:5672}
+    username: ${RABBITMQ_USER:karandash}
+    password: ${RABBITMQ_PASSWORD:karandash-local}
+
+management.endpoints.web.exposure.include: health,info,prometheus
+
+karandash:
+  core:
+    base-url: ${CORE_BASE_URL:http://localhost:8080}
+    service-token: ${CORE_SERVICE_TOKEN:}
+  telegram:
+    token: ${TELEGRAM_BOT_TOKEN:}
+    webhook-secret: ${TELEGRAM_WEBHOOK_SECRET:}
+

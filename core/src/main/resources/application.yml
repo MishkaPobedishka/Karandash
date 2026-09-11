@@ -1,0 +1,44 @@
+server:
+  port: ${CORE_PORT:8080}
+
+spring:
+  application:
+    name: karandash-core
+  datasource:
+    url: ${DATABASE_URL:jdbc:postgresql://localhost:5432/karandash}
+    username: ${POSTGRES_USER:karandash}
+    password: ${POSTGRES_PASSWORD:karandash-local}
+  jpa:
+    open-in-view: false
+    hibernate:
+      ddl-auto: validate
+  rabbitmq:
+    host: ${RABBITMQ_HOST:localhost}
+    port: ${RABBITMQ_PORT:5672}
+    username: ${RABBITMQ_USER:karandash}
+    password: ${RABBITMQ_PASSWORD:karandash-local}
+    publisher-confirm-type: correlated
+    publisher-returns: true
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info,prometheus
+  endpoint:
+    health:
+      probes:
+        enabled: true
+
+karandash:
+  timezone: Asia/Yekaterinburg
+  prototype:
+    enabled: ${PROTOTYPE_ENABLED:false}
+  notifications:
+    budget-warning-ratio: ${BUDGET_WARNING_RATIO:0.90}
+  ai:
+    enabled: ${GPT_ENABLED:false}
+    base-url: ${GPT_BASE_URL:https://example.invalid/v1}
+    api-key: ${GPT_API_KEY:}
+    vision-model: ${GPT_VISION_MODEL:}
+    text-model: ${GPT_TEXT_MODEL:}

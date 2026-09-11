@@ -1,0 +1,4 @@
+server.port: ${SAMOKAT_PORT:8093}
+spring.application.name: karandash-samokat
+management.endpoints.web.exposure.include: health,info,prometheus
+

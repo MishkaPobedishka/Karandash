@@ -1,0 +1,4 @@
+server.port: ${LIFEMART_PORT:8094}
+spring.application.name: karandash-lifemart
+management.endpoints.web.exposure.include: health,info,prometheus
+
