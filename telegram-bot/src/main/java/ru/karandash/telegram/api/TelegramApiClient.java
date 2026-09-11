@@ -1,0 +1,134 @@
+package ru.karandash.telegram.api;
+
+import com.fasterxml.jackson.databind.JavaType;
+import com.fasterxml.jackson.databind.ObjectMapper;
+import org.springframework.http.MediaType;
+import org.springframework.web.client.RestClient;
+
+import java.io.IOException;
+import java.io.InputStream;
+import java.time.Duration;
+import java.util.List;
+import java.util.Map;
+import java.util.regex.Pattern;
+
+/**
+ * Тонкий клиент Telegram Bot API: только методы, которые нужны приёмщику.
+ * Токен бота стоит в пути каждого запроса, поэтому исходные исключения HTTP-клиента наружу не выпускаются.
+ */
+public class TelegramApiClient {
+
+    public static final int MESSAGE_LIMIT = 4096;
+    private static final Pattern FILE_PATH = Pattern.compile("[A-Za-z0-9_\\-][A-Za-z0-9_\\-./]*");
+
+    private final RestClient restClient;
+    private final String token;
+    private final ObjectMapper objectMapper;
+
+    public TelegramApiClient(RestClient restClient, String token, ObjectMapper objectMapper) {
+        this.restClient = restClient;
+        this.token = token;
+        this.objectMapper = objectMapper;
+    }
+
+    public List<Update> getUpdates(long offset, Duration timeout) {
+        return call("getUpdates", Map.of(
+                "offset", offset,
+                "timeout", timeout.toSeconds(),
+                "allowed_updates", List.of("message")
+        ), objectMapper.getTypeFactory().constructCollectionType(List.class, Update.class));
+    }
+
+    public TelegramFile getFile(String fileId) {
+        return call("getFile", Map.of("file_id", fileId), objectMapper.constructType(TelegramFile.class));
+    }
+
+    /** Скачивает файл в память, обрывая скачивание сверх лимита. */
+    public byte[] downloadFile(String filePath, long maxBytes) {
+        if (filePath == null || !FILE_PATH.matcher(filePath).matches() || filePath.contains("..")) {
+            throw new TelegramApiException("Telegram вернул недопустимый путь файла", null, null);
+        }
+        try {
+            return restClient.get()
+                    .uri(builder -> builder.path("/file/bot{token}/").path(filePath).build(token))
+                    .exchange((request, response) -> {
+                        if (!response.getStatusCode().is2xxSuccessful()) {
+                            throw new TelegramApiException("Не удалось скачать файл из Telegram",
+                                    response.getStatusCode().value(), null);
+                        }
+                        try (InputStream body = response.getBody()) {
+                            byte[] bytes = body.readNBytes(Math.toIntExact(Math.min(maxBytes + 1, Integer.MAX_VALUE)));
+                            if (bytes.length > maxBytes) {
+                                throw new FileTooLargeException();
+                            }
+                            return bytes;
+                        }
+                    });
+        } catch (TelegramApiException | FileTooLargeException exception) {
+            throw exception;
+        } catch (RuntimeException exception) {
+            throw networkError("download", exception);
+        }
+    }
+
+    public void sendMessage(long chatId, String text) {
+        call("sendMessage", Map.of(
+                "chat_id", chatId,
+                "text", text.length() <= MESSAGE_LIMIT ? text : text.substring(0, MESSAGE_LIMIT),
+                "link_preview_options", Map.of("is_disabled", true)
+        ), objectMapper.constructType(Object.class));
+    }
+
+    public void sendChatAction(long chatId, String action) {
+        call("sendChatAction", Map.of("chat_id", chatId, "action", action), objectMapper.constructType(Boolean.class));
+    }
+
+    private <T> T call(String method, Object body, JavaType resultType) {
+        ApiResponse<T> response;
+        try {
+            response = restClient.post()
+                    .uri("/bot{token}/{method}", token, method)
+                    .contentType(MediaType.APPLICATION_JSON)
+                    .body(body)
+                    .exchange((request, httpResponse) -> {
+                        try (InputStream stream = httpResponse.getBody()) {
+                            return objectMapper.readValue(stream,
+                                    objectMapper.getTypeFactory().constructParametricType(ApiResponse.class, resultType));
+                        } catch (IOException exception) {
+                            throw new TelegramApiException("Telegram вернул нечитаемый ответ на " + method,
+                                    httpResponse.getStatusCode().value(), null);
+                        }
+                    });
+        } catch (TelegramApiException exception) {
+            throw exception;
+        } catch (RuntimeException exception) {
+            throw networkError(method, exception);
+        }
+        if (response == null || !response.ok()) {
+            Integer retryAfter = response == null || response.parameters() == null
+                    ? null
+                    : response.parameters().retryAfter();
+            throw new TelegramApiException(
+                    "Telegram отклонил " + method + ": " + (response == null ? "пустой ответ" : response.description()),
+                    response == null ? null : response.errorCode(), retryAfter);
+        }
+        return response.result();
+    }
+
+    private static TelegramApiException networkError(String method, RuntimeException exception) {
+        // Сообщение исходного исключения содержит URL с токеном — берём только тип ошибки.
+        Throwable root = exception;
+        while (root.getCause() != null) {
+            root = root.getCause();
+        }
+        return new TelegramApiException("Сетевая ошибка при вызове " + method + ": " + root.getClass().getSimpleName(),
+                null, null);
+    }
+
+    public static class FileTooLargeException extends RuntimeException {
+
+        public FileTooLargeException() {
+            super("Файл из Telegram больше допустимого размера");
+        }
+    }
+}

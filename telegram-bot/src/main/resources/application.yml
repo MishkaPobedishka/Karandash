@@ -1,26 +1,55 @@
 server:
   port: ${TELEGRAM_BOT_PORT:8081}
 
+# Приёмщик без состояния: базы нет, сообщения и фото живут только в памяти на время обработки.
 spring:
   application:
     name: karandash-telegram-bot
-  datasource:
-    url: ${BOT_DATABASE_URL:jdbc:postgresql://localhost:5432/karandash}
-    username: ${POSTGRES_USER:karandash}
-    password: ${POSTGRES_PASSWORD:karandash-local}
+  threads:
+    virtual:
+      enabled: true
   rabbitmq:
     host: ${RABBITMQ_HOST:localhost}
     port: ${RABBITMQ_PORT:5672}
     username: ${RABBITMQ_USER:karandash}
     password: ${RABBITMQ_PASSWORD:karandash-local}
+    listener:
+      simple:
+        # Очередь объявляет ядро; приёмщик ждёт её, а не падает.
+        missing-queues-fatal: false
+        default-requeue-rejected: false
+        prefetch: 10
+        retry:
+          enabled: true
+          max-attempts: 3
+          initial-interval: 2s
+          multiplier: 3
 
-management.endpoints.web.exposure.include: health,info,prometheus
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info,prometheus
+  endpoint:
+    health:
+      probes:
+        enabled: true
+      group:
+        readiness:
+          include: readinessState,telegramPolling
 
 karandash:
   core:
     base-url: ${CORE_BASE_URL:http://localhost:8080}
     service-token: ${CORE_SERVICE_TOKEN:}
+    connect-timeout: 5s
+    read-timeout: ${CORE_READ_TIMEOUT:180s}
   telegram:
     token: ${TELEGRAM_BOT_TOKEN:}
+    # Для следующего шага — приёма через webhook. Сейчас апдейты забираются long polling.
     webhook-secret: ${TELEGRAM_WEBHOOK_SECRET:}
-
+    api-base-url: ${TELEGRAM_API_BASE_URL:https://api.telegram.org}
+    poll-timeout: 30s
+    max-photo-size: 10MB
+    parallel-chats: 4
+    notifications-enabled: ${TELEGRAM_NOTIFICATIONS_ENABLED:true}
