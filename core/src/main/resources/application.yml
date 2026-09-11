@@ -19,6 +19,10 @@ spring:
     password: ${RABBITMQ_PASSWORD:karandash-local}
     publisher-confirm-type: correlated
     publisher-returns: true
+  servlet:
+    multipart:
+      max-file-size: 10MB
+      max-request-size: 11MB
 
 management:
   endpoints:
@@ -36,9 +40,20 @@ karandash:
     enabled: ${PROTOTYPE_ENABLED:false}
   notifications:
     budget-warning-ratio: ${BUDGET_WARNING_RATIO:0.90}
+  internal-api:
+    service-token: ${CORE_SERVICE_TOKEN:}
+  telegram:
+    max-text-length: 2000
+    update-retention: 48h
   ai:
-    enabled: ${GPT_ENABLED:false}
+    # disabled | openai-compatible | agent
+    provider: ${AI_PROVIDER:disabled}
     base-url: ${GPT_BASE_URL:https://example.invalid/v1}
     api-key: ${GPT_API_KEY:}
     vision-model: ${GPT_VISION_MODEL:}
     text-model: ${GPT_TEXT_MODEL:}
+    agent:
+      base-url: ${AGENT_BASE_URL:http://localhost:8095}
+      service-token: ${AGENT_SERVICE_TOKEN:}
+      connect-timeout: 5s
+      read-timeout: ${AGENT_READ_TIMEOUT:150s}

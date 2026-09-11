@@ -39,7 +39,8 @@ public class RabbitTopologyConfiguration {
 
     @Bean
     Binding botEventsBinding(Queue botEventsQueue, TopicExchange coreEventsExchange) {
-        return BindingBuilder.bind(botEventsQueue).to(coreEventsExchange).with("#");
+        // Приёмщику — только события для Telegram: остальные доменные события не должны уходить на зарубежную ноду.
+        return BindingBuilder.bind(botEventsQueue).to(coreEventsExchange).with("telegram.#");
     }
 
     @Bean
