@@ -50,7 +50,7 @@ public class TelegramApiClient {
         }
         try {
             return restClient.get()
-                    .uri(builder -> builder.path("/file/bot{token}/").path(filePath).build(token))
+                    .uri(builder -> builder.path("/file/bot" + token + "/").path(filePath).build())
                     .exchange((request, response) -> {
                         if (!response.getStatusCode().is2xxSuccessful()) {
                             throw new TelegramApiException("Не удалось скачать файл из Telegram",
@@ -87,7 +87,8 @@ public class TelegramApiClient {
         ApiResponse<T> response;
         try {
             response = restClient.post()
-                    .uri("/bot{token}/{method}", token, method)
+                    // Токен — литералом: как переменная шаблона он кодируется строго, и «:» уходит как %3A.
+                    .uri(builder -> builder.path("/bot" + token + "/" + method).build())
                     .contentType(MediaType.APPLICATION_JSON)
                     .body(body)
                     .exchange((request, httpResponse) -> {

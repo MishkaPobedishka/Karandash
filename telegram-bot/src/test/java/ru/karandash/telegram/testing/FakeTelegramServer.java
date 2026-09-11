@@ -32,6 +32,7 @@ public final class FakeTelegramServer implements AutoCloseable {
     public final List<Long> offsets = new CopyOnWriteArrayList<>();
     public final List<JsonNode> sentMessages = new CopyOnWriteArrayList<>();
     public final List<JsonNode> chatActions = new CopyOnWriteArrayList<>();
+    public final List<String> requestPaths = new CopyOnWriteArrayList<>();
 
     public FakeTelegramServer() throws IOException {
         server = HttpServer.create(new InetSocketAddress("127.0.0.1", 0), 0);
@@ -60,7 +61,9 @@ public final class FakeTelegramServer implements AutoCloseable {
     }
 
     private void handle(HttpExchange exchange) throws IOException {
-        String path = exchange.getRequestURI().getPath();
+        // Сырой путь: настоящий Telegram ждёт токен как есть, процентное кодирование здесь — ошибка клиента.
+        String path = exchange.getRequestURI().getRawPath();
+        requestPaths.add(path);
         String botPrefix = "/bot" + TOKEN + "/";
         String filePrefix = "/file/bot" + TOKEN + "/";
         if (path.startsWith(filePrefix)) {

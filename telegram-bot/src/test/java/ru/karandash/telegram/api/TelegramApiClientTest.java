@@ -47,6 +47,18 @@ class TelegramApiClientTest {
     }
 
     @Test
+    void putsTokenIntoPathVerbatim() {
+        telegram.addFile("f1", "photos/file_1.jpg", new byte[16]);
+
+        client.getUpdates(0, Duration.ofSeconds(1));
+        client.downloadFile("photos/file_1.jpg", 1024);
+
+        assertThat(telegram.requestPaths).containsExactly(
+                "/bot" + FakeTelegramServer.TOKEN + "/getUpdates",
+                "/file/bot" + FakeTelegramServer.TOKEN + "/photos/file_1.jpg");
+    }
+
+    @Test
     void apiErrorsCarryCodeButNeverToken() {
         telegram.failMethod("getUpdates", 409, "Conflict: terminated by other getUpdates request");
 
