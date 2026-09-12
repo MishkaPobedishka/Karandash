@@ -90,9 +90,15 @@ kubectl -n chimney exec statefulset/rabbitmq -- rabbitmqctl set_permissions -p k
 4. **Агент на Валере.** Версию k3s взять ту же, что на `pythagoras` (`k3s --version`):
    ```sh
    curl -sfL https://get.k3s.io | INSTALL_K3S_VERSION='<версия с pythagoras>' \
-     K3S_URL=https://84.38.189.217:6443 K3S_TOKEN='<токен>' sh -s - agent \
-     --node-name n8n-hassle --node-label karandash/region=foreign
+     K3S_URL=https://84.38.189.217:6443 sh -s - agent \
+     --token-file /root/.k3s-token \
+     --node-name n8n-hassle \
+     --node-label karandash/region=foreign \
+     --node-taint karandash=only:NoSchedule
    ```
+   Токен кладётся файлом, чтобы не светиться в списке процессов: на Валере `sudo install -m600 /dev/stdin /root/.k3s-token`, на вход — содержимое `/var/lib/rancher/k3s/server/node-token` с `pythagoras`.
+
+   Метка запрета `karandash=only:NoSchedule` оставляет ноду только Карандашу. Без неё туда приедут DaemonSet-ы Дымохода: `node-exporter` и `promtail` — последний увёз бы логи n8n, Jitsi и VPN в РФ, — а также `svclb-traefik`, который пытается занять порты 80 и 443, уже занятые Caddy и hysteria. Поды Карандаша эту метку терпят, это прописано в их манифестах. Если позже понадобится мониторинг Валеры в Дымоходе, его DaemonSet-ам нужно добавить toleration.
    Если kubelet не стартует из-за свопа — добавить `--kubelet-arg=fail-swap-on=false`.
 5. **Реестр** (если образы всё же тянутся с `pythagoras`) — `/etc/rancher/k3s/registries.yaml` на Валере, как на ноде `v749216`:
    ```yaml
