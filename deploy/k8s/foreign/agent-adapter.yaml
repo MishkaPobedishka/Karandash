@@ -28,6 +28,13 @@ spec:
     spec:
       nodeSelector:
         karandash/region: foreign
+      # Нода Валеры занята только Карандашом: на ней живут n8n, Jitsi и VPN, и чужие поды
+      # (в том числе DaemonSet-ы Дымохода и svclb с портами 80/443) туда попасть не должны.
+      tolerations:
+        - key: karandash
+          operator: Equal
+          value: only
+          effect: NoSchedule
       automountServiceAccountToken: false
       securityContext:
         runAsNonRoot: true
