@@ -28,6 +28,9 @@ spec:
       nodeSelector:
         karandash/region: ru
       automountServiceAccountToken: false
+      # Kubernetes иначе подставляет в под переменные вида CORE_PORT=tcp://10.43.0.1:8080 для каждого
+      # сервиса namespace, и они перебивают ${CORE_PORT:8080} в конфиге приложения.
+      enableServiceLinks: false
       securityContext:
         runAsNonRoot: true
         runAsUser: 10001
