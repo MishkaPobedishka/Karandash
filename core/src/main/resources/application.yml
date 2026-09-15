@@ -46,6 +46,11 @@ karandash:
   telegram:
     max-text-length: 2000
     update-retention: 48h
+  diary:
+    # День дневника считается по этому поясу, пока у аккаунта нет своего.
+    zone: ${DIARY_ZONE:Asia/Yekaterinburg}
+    # Оценка, на которую пользователь не ответил, забывается.
+    draft-retention: 24h
   ai:
     # disabled | openai-compatible | agent
     provider: ${AI_PROVIDER:disabled}

@@ -26,7 +26,8 @@ class RecognitionReplyFormatterTest {
                 .contains("• Хлеб — 30 г, 70–80 ккал")
                 .contains("Б 0,5–1,3 г · уверенность 90%")
                 .contains("Итого: 450–560 ккал")
-                .contains("пока не записывается");
+                .as("вопрос про дневник добавляет ядро вместе с кнопками, а не форматтер")
+                .doesNotContain("дневник");
     }
 
     @Test

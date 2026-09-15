@@ -51,9 +51,7 @@ public class RecognitionReplyFormatter {
         if (text.isEmpty()) {
             return TelegramTexts.NOTHING_RECOGNIZED;
         }
-        if (!result.items().isEmpty()) {
-            text.append("\n\n").append(TelegramTexts.ESTIMATE_NOTE);
-        }
+        // Вопрос «записать ли» добавляет вызывающий: он знает, какие кнопки уйдут вместе с текстом.
         return limit(text.toString(), TELEGRAM_MESSAGE_LIMIT);
     }
 
@@ -83,7 +81,7 @@ public class RecognitionReplyFormatter {
         }
     }
 
-    private static String range(long min, long max) {
+    static String range(long min, long max) {
         return min == max ? Long.toString(min) : min + "–" + max;
     }
 
@@ -103,7 +101,7 @@ public class RecognitionReplyFormatter {
                 .stripTrailingZeros().toPlainString().replace('.', ',');
     }
 
-    private static String limit(String value, int maxLength) {
+    static String limit(String value, int maxLength) {
         return value.length() <= maxLength ? value : value.substring(0, maxLength - 1) + "…";
     }
 }

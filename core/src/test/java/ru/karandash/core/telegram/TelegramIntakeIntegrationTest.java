@@ -4,6 +4,7 @@ import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.mockito.ArgumentCaptor;
 import org.springframework.amqp.core.Message;
 import org.springframework.amqp.rabbit.core.RabbitTemplate;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -29,6 +30,7 @@ import ru.karandash.contracts.ai.ModelUsage;
 import ru.karandash.contracts.ai.RecognitionItem;
 import ru.karandash.contracts.ai.RecognitionResult;
 import ru.karandash.contracts.telegram.BotNotification;
+import ru.karandash.contracts.telegram.ReplyButton;
 import ru.karandash.contracts.telegram.TelegramInboundMessage;
 import ru.karandash.contracts.telegram.TelegramReply;
 import ru.karandash.core.ai.ModelRecognition;
@@ -74,6 +76,13 @@ class TelegramIntakeIntegrationTest {
             new BigDecimal("25"), new BigDecimal("32"), new BigDecimal("8"), new BigDecimal("12"),
             new BigDecimal("45"), new BigDecimal("60"), new BigDecimal("0.7"))), List.of());
 
+    private static final RecognitionResult DUMPLING_QUESTION = new RecognitionResult(List.of(),
+            List.of("Какая начинка и сколько весит один пельмень?"));
+    private static final RecognitionResult DUMPLING = new RecognitionResult(List.of(new RecognitionItem(
+            "Пельмень с мясом", new BigDecimal("12"), new BigDecimal("18"), 25, 40,
+            new BigDecimal("1.5"), new BigDecimal("2.5"), new BigDecimal("1"), new BigDecimal("2"),
+            new BigDecimal("3"), new BigDecimal("5"), new BigDecimal("0.4"))), List.of());
+
     @Container
     @ServiceConnection
     static final PostgreSQLContainer<?> POSTGRES = new PostgreSQLContainer<>("postgres:17-alpine");
@@ -112,7 +121,7 @@ class TelegramIntakeIntegrationTest {
         HttpHeaders headers = new HttpHeaders();
         headers.setContentType(MediaType.MULTIPART_FORM_DATA);
         ResponseEntity<String> response = rest.postForEntity("/internal/telegram/messages",
-                new HttpEntity<>(parts(new TelegramInboundMessage(nextUpdateId(), 42, "/start"), null), headers),
+                new HttpEntity<>(parts(TelegramInboundMessage.message(nextUpdateId(), 42, "/start"), null), headers),
                 String.class);
 
         assertThat(response.getStatusCode()).isEqualTo(HttpStatus.UNAUTHORIZED);
@@ -122,8 +131,8 @@ class TelegramIntakeIntegrationTest {
     void startBindsTelegramUserToSingleAccount() {
         long telegramId = 700_001;
 
-        TelegramReply greeting = send(new TelegramInboundMessage(nextUpdateId(), telegramId, "/start"), null);
-        send(new TelegramInboundMessage(nextUpdateId(), telegramId, "/help"), null);
+        TelegramReply greeting = send(TelegramInboundMessage.message(nextUpdateId(), telegramId, "/start"), null);
+        send(TelegramInboundMessage.message(nextUpdateId(), telegramId, "/help"), null);
 
         assertThat(greeting.duplicate()).isFalse();
         assertThat(greeting.messages()).singleElement().asString().startsWith("Привет! Я Карандаш");
@@ -139,7 +148,7 @@ class TelegramIntakeIntegrationTest {
         long telegramId = 700_002;
         when(recognitionModel.recognizeTextWithUsage(anyString())).thenReturn(new ModelRecognition(BUCKWHEAT,
                 new ModelUsage("claude-cli", "claude-sonnet-5", 1200, 150, new BigDecimal("0.0123"))));
-        TelegramInboundMessage message = new TelegramInboundMessage(nextUpdateId(), telegramId, "гречка с курицей");
+        TelegramInboundMessage message = TelegramInboundMessage.message(nextUpdateId(), telegramId, "гречка с курицей");
 
         TelegramReply reply = send(message, null);
         TelegramReply repeated = send(message, null);
@@ -169,9 +178,11 @@ class TelegramIntakeIntegrationTest {
         when(recognitionModel.recognizePhotoWithUsage(any(), any())).thenReturn(new ModelRecognition(
                 new RecognitionResult(List.of(), List.of("Что это за суп?")), ModelUsage.unknown()));
 
-        TelegramReply reply = send(new TelegramInboundMessage(nextUpdateId(), 700_003, null), photo);
+        TelegramReply reply = send(TelegramInboundMessage.message(nextUpdateId(), 700_003, null), photo);
 
-        assertThat(reply.messages()).containsExactly("Чтобы оценить, уточните:\n1. Что это за суп?");
+        assertThat(reply.messages()).singleElement().asString()
+                .startsWith("Чтобы оценить, уточните:\n1. Что это за суп?")
+                .endsWith("Ответьте сообщением — или нажмите «Оцени как есть», и я прикину по типичному варианту.");
         verify(recognitionModel).recognizePhotoWithUsage(eq(photo), eq("image/jpeg"));
         assertThat(jdbc.queryForObject("""
                 select u.provider from usage_record u join telegram_identity t on t.account_id = u.account_id
@@ -183,7 +194,7 @@ class TelegramIntakeIntegrationTest {
         when(recognitionModel.recognizeTextWithUsage(anyString()))
                 .thenThrow(new ModelUnavailableException("Агент-адаптер ответил 504"));
 
-        TelegramReply reply = send(new TelegramInboundMessage(nextUpdateId(), 700_004, "борщ"), null);
+        TelegramReply reply = send(TelegramInboundMessage.message(nextUpdateId(), 700_004, "борщ"), null);
 
         assertThat(reply.messages()).singleElement().asString().contains("не получается распознать");
         assertThat(jdbc.queryForObject("""
@@ -206,6 +217,155 @@ class TelegramIntakeIntegrationTest {
         assertThat(body.path("chatId").asLong()).isEqualTo(700_005);
         assertThat(body.path("text").asText()).isEqualTo("Вы приближаетесь к верхней границе");
         assertThat(rabbitTemplate.receive("q.bot.events", 2_000)).as("чужие события не попадают к приёмщику").isNull();
+    }
+
+
+    @Test
+    void estimateGoesToDiaryOnlyAfterButton() {
+        long telegramId = 700_010;
+        when(recognitionModel.recognizeTextWithUsage(anyString()))
+                .thenReturn(new ModelRecognition(BUCKWHEAT, ModelUsage.unknown()));
+
+        TelegramReply estimate = send(
+                TelegramInboundMessage.message(nextUpdateId(), telegramId, "гречка с курицей"), null);
+
+        assertThat(estimate.messages()).singleElement().asString()
+                .endsWith("Записать в дневник? Если что-то не так — напишите, что именно, и я пересчитаю.");
+        assertThat(estimate.buttons()).extracting(ReplyButton::text)
+                .containsExactly("✓ Записать в дневник", "✗ Не записывать");
+        assertThat(meals(telegramId)).as("до нажатия в дневнике пусто").isZero();
+
+        TelegramReply saved = send(
+                TelegramInboundMessage.button(nextUpdateId(), telegramId, button(estimate, 0)), null);
+
+        assertThat(saved.messages()).singleElement().asString()
+                .startsWith("Записал в дневник.")
+                .contains("Гречка с курицей — 380–480 ккал")
+                .contains("Всего за день: 380–480 ккал, записей: 1");
+        assertThat(saved.buttons()).isEmpty();
+        assertThat(meals(telegramId)).isOne();
+        assertThat(jdbc.queryForObject("""
+                select f.name from food_item f join meal m on m.id = f.meal_id
+                join telegram_identity t on t.account_id = m.account_id where t.telegram_id = ?""",
+                String.class, telegramId)).isEqualTo("Гречка с курицей");
+
+        TelegramReply again = send(
+                TelegramInboundMessage.button(nextUpdateId(), telegramId, button(estimate, 0)), null);
+
+        assertThat(again.messages()).singleElement().asString().startsWith("Эта оценка уже закрыта");
+        assertThat(meals(telegramId)).as("вторым нажатием запись не задваивается").isOne();
+    }
+
+    @Test
+    void commentRecalculatesTheSameMeal() {
+        long telegramId = 700_011;
+        when(recognitionModel.recognizeTextWithUsage(anyString()))
+                .thenReturn(new ModelRecognition(DUMPLING_QUESTION, ModelUsage.unknown()))
+                .thenReturn(new ModelRecognition(DUMPLING, ModelUsage.unknown()));
+
+        TelegramReply asked = send(TelegramInboundMessage.message(nextUpdateId(), telegramId, "пельмень"), null);
+        TelegramReply revised = send(
+                TelegramInboundMessage.message(nextUpdateId(), telegramId, "не знаю, запиши как есть"), null);
+
+        assertThat(asked.buttons()).extracting(ReplyButton::text)
+                .containsExactly("Оцени как есть", "✗ Не записывать");
+        ArgumentCaptor<String> requests = ArgumentCaptor.forClass(String.class);
+        verify(recognitionModel, times(2)).recognizeTextWithUsage(requests.capture());
+        assertThat(requests.getAllValues().getLast())
+                .as("модель получает и прошлую оценку, и ответ пользователя")
+                .contains("пельмень")
+                .contains("Какая начинка и сколько весит один пельмень?")
+                .contains("не знаю, запиши как есть");
+        assertThat(revised.messages()).singleElement().asString().contains("Пельмень с мясом");
+        assertThat(revised.buttons()).extracting(ReplyButton::text)
+                .containsExactly("✓ Записать в дневник", "✗ Не записывать");
+        assertThat(jdbc.queryForList("""
+                select u.kind from usage_record u join telegram_identity t on t.account_id = u.account_id
+                where t.telegram_id = ? order by u.created_at""", String.class, telegramId))
+                .containsExactlyInAnyOrder("RECOGNITION_TEXT", "RECOGNITION_REVISION");
+    }
+
+    @Test
+    void asIsButtonAsksModelForTypicalEstimate() {
+        long telegramId = 700_012;
+        when(recognitionModel.recognizeTextWithUsage(anyString()))
+                .thenReturn(new ModelRecognition(DUMPLING_QUESTION, ModelUsage.unknown()))
+                .thenReturn(new ModelRecognition(DUMPLING, ModelUsage.unknown()));
+
+        TelegramReply asked = send(TelegramInboundMessage.message(nextUpdateId(), telegramId, "пельмень"), null);
+        TelegramReply revised = send(
+                TelegramInboundMessage.button(nextUpdateId(), telegramId, button(asked, 0)), null);
+
+        ArgumentCaptor<String> requests = ArgumentCaptor.forClass(String.class);
+        verify(recognitionModel, times(2)).recognizeTextWithUsage(requests.capture());
+        assertThat(requests.getAllValues().getLast()).contains("Уточнить не могу, оцени по типичному варианту.");
+        assertThat(revised.messages()).singleElement().asString().contains("Пельмень с мясом");
+    }
+
+    @Test
+    void dropButtonForgetsEstimateAndNextMessageStartsOver() {
+        long telegramId = 700_013;
+        when(recognitionModel.recognizeTextWithUsage(anyString()))
+                .thenReturn(new ModelRecognition(BUCKWHEAT, ModelUsage.unknown()));
+
+        TelegramReply estimate = send(
+                TelegramInboundMessage.message(nextUpdateId(), telegramId, "гречка с курицей"), null);
+        TelegramReply dropped = send(
+                TelegramInboundMessage.button(nextUpdateId(), telegramId, button(estimate, 1)), null);
+        send(TelegramInboundMessage.message(nextUpdateId(), telegramId, "борщ"), null);
+
+        assertThat(dropped.messages()).singleElement().asString().startsWith("Не записал.");
+        assertThat(meals(telegramId)).isZero();
+        // После отказа следующее сообщение — новая еда, а не уточнение к закрытой оценке.
+        verify(recognitionModel).recognizeTextWithUsage("борщ");
+    }
+
+    @Test
+    void diaryIsSeparatePerUser() {
+        long first = 700_014;
+        long second = 700_015;
+        when(recognitionModel.recognizeTextWithUsage(anyString()))
+                .thenReturn(new ModelRecognition(BUCKWHEAT, ModelUsage.unknown()))
+                .thenReturn(new ModelRecognition(DUMPLING, ModelUsage.unknown()));
+
+        TelegramReply firstEstimate = send(TelegramInboundMessage.message(nextUpdateId(), first, "гречка"), null);
+        send(TelegramInboundMessage.button(nextUpdateId(), first, button(firstEstimate, 0)), null);
+        TelegramReply secondEstimate = send(TelegramInboundMessage.message(nextUpdateId(), second, "пельмени"), null);
+        // Чужую кнопку нажать нельзя: черновик ищется вместе с аккаунтом.
+        TelegramReply foreign = send(
+                TelegramInboundMessage.button(nextUpdateId(), first, button(secondEstimate, 0)), null);
+        send(TelegramInboundMessage.button(nextUpdateId(), second, button(secondEstimate, 0)), null);
+
+        assertThat(foreign.messages()).singleElement().asString().startsWith("Эта оценка уже закрыта");
+        assertThat(send(TelegramInboundMessage.message(nextUpdateId(), first, "/diary"), null).messages())
+                .singleElement().asString()
+                .contains("Гречка с курицей")
+                .doesNotContain("Пельмень")
+                .contains("записей: 1");
+        assertThat(send(TelegramInboundMessage.message(nextUpdateId(), second, "/diary"), null).messages())
+                .singleElement().asString()
+                .contains("Пельмень с мясом")
+                .doesNotContain("Гречка")
+                .contains("записей: 1");
+        assertThat(meals(first)).isOne();
+        assertThat(meals(second)).isOne();
+    }
+
+    @Test
+    void diaryIsEmptyForNewUser() {
+        TelegramReply reply = send(TelegramInboundMessage.message(nextUpdateId(), 700_016, "/diary"), null);
+
+        assertThat(reply.messages()).singleElement().asString().startsWith("Сегодня в дневнике пусто");
+    }
+
+    private int meals(long telegramId) {
+        return jdbc.queryForObject("""
+                select count(*) from meal m join telegram_identity t on t.account_id = m.account_id
+                where t.telegram_id = ?""", Integer.class, telegramId);
+    }
+
+    private static String button(TelegramReply reply, int index) {
+        return reply.buttons().get(index).data();
     }
 
     private void drainBotQueue() {

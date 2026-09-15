@@ -4,10 +4,12 @@ import com.fasterxml.jackson.databind.JavaType;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.springframework.http.MediaType;
 import org.springframework.web.client.RestClient;
+import ru.karandash.contracts.telegram.ReplyButton;
 
 import java.io.IOException;
 import java.io.InputStream;
 import java.time.Duration;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.regex.Pattern;
@@ -35,7 +37,7 @@ public class TelegramApiClient {
         return call("getUpdates", Map.of(
                 "offset", offset,
                 "timeout", timeout.toSeconds(),
-                "allowed_updates", List.of("message")
+                "allowed_updates", List.of("message", "callback_query")
         ), objectMapper.getTypeFactory().constructCollectionType(List.class, Update.class));
     }
 
@@ -72,10 +74,36 @@ public class TelegramApiClient {
     }
 
     public void sendMessage(long chatId, String text) {
-        call("sendMessage", Map.of(
+        sendMessage(chatId, text, List.of());
+    }
+
+    /** Кнопки идут одна под другой: подписи длинные, в ряд на телефоне они не помещаются. */
+    public void sendMessage(long chatId, String text, List<ReplyButton> buttons) {
+        Map<String, Object> body = new LinkedHashMap<>(Map.of(
                 "chat_id", chatId,
                 "text", text.length() <= MESSAGE_LIMIT ? text : text.substring(0, MESSAGE_LIMIT),
                 "link_preview_options", Map.of("is_disabled", true)
+        ));
+        if (buttons != null && !buttons.isEmpty()) {
+            body.put("reply_markup", Map.of("inline_keyboard", buttons.stream()
+                    .map(button -> List.of(Map.of("text", button.text(), "callback_data", button.data())))
+                    .toList()));
+        }
+        call("sendMessage", body, objectMapper.constructType(Object.class));
+    }
+
+    /** Ответ на нажатие: без него Telegram крутит часы на кнопке до таймаута. */
+    public void answerCallbackQuery(String callbackQueryId) {
+        call("answerCallbackQuery", Map.of("callback_query_id", callbackQueryId),
+                objectMapper.constructType(Boolean.class));
+    }
+
+    /** Снимает кнопки у сообщения, чтобы на ту же оценку нельзя было нажать второй раз. */
+    public void clearButtons(long chatId, long messageId) {
+        call("editMessageReplyMarkup", Map.of(
+                "chat_id", chatId,
+                "message_id", messageId,
+                "reply_markup", Map.of("inline_keyboard", List.of())
         ), objectMapper.constructType(Object.class));
     }
 

@@ -17,6 +17,10 @@ subprojects {
     apply(plugin = "java")
     apply(plugin = "io.spring.dependency-management")
 
+    // Версия из Spring Boot 3.5.5 не находит Docker вне Docker Desktop: на обычном Linux-демоне
+    // стратегия поиска падает с NullPointerException и тесты молча пропускаются.
+    extra["testcontainers.version"] = "1.21.4"
+
     java {
         toolchain {
             languageVersion = JavaLanguageVersion.of(21)

@@ -5,6 +5,8 @@ import org.slf4j.LoggerFactory;
 import org.springframework.boot.context.properties.EnableConfigurationProperties;
 import org.springframework.stereotype.Service;
 import ru.karandash.contracts.ai.ModelUsage;
+import ru.karandash.contracts.ai.RecognitionContract;
+import ru.karandash.contracts.ai.RecognitionResult;
 import ru.karandash.contracts.telegram.TelegramInboundMessage;
 import ru.karandash.contracts.telegram.TelegramReply;
 import ru.karandash.core.account.TelegramAccountService;
@@ -13,15 +15,23 @@ import ru.karandash.core.ai.AiProvider;
 import ru.karandash.core.ai.ModelRecognition;
 import ru.karandash.core.ai.ModelUnavailableException;
 import ru.karandash.core.ai.RecognitionModel;
+import ru.karandash.core.diary.DiaryService;
+import ru.karandash.core.diary.DraftSource;
+import ru.karandash.core.diary.MealDraft;
+import ru.karandash.core.diary.MealDraftService;
 import ru.karandash.core.usage.UsageRecorder;
 
 import java.time.Duration;
+import java.util.List;
 import java.util.Locale;
+import java.util.Optional;
 import java.util.UUID;
+import java.util.function.Function;
 import java.util.function.Supplier;
 
 /**
- * Обработка входящего сообщения от приёмщика: дубль → привязка аккаунта → команда или распознавание → текст ответа.
+ * Разговор с пользователем: дубль → привязка аккаунта → команда, оценка, уточнение или кнопка.
+ * Пока оценка не закрыта, обычное сообщение считается уточнением к ней, а не новой едой.
  * В логи не пишутся ни текст сообщения, ни фото, ни ответ модели.
  */
 @Service
@@ -35,6 +45,9 @@ public class TelegramIntakeService {
     private final RecognitionModel recognitionModel;
     private final UsageRecorder usageRecorder;
     private final RecognitionReplyFormatter formatter;
+    private final DiaryReplyFormatter diaryFormatter;
+    private final MealDraftService drafts;
+    private final DiaryService diary;
     private final AiProperties aiProperties;
     private final TelegramIntakeProperties properties;
 
@@ -44,6 +57,9 @@ public class TelegramIntakeService {
             RecognitionModel recognitionModel,
             UsageRecorder usageRecorder,
             RecognitionReplyFormatter formatter,
+            DiaryReplyFormatter diaryFormatter,
+            MealDraftService drafts,
+            DiaryService diary,
             AiProperties aiProperties,
             TelegramIntakeProperties properties
     ) {
@@ -52,6 +68,9 @@ public class TelegramIntakeService {
         this.recognitionModel = recognitionModel;
         this.usageRecorder = usageRecorder;
         this.formatter = formatter;
+        this.diaryFormatter = diaryFormatter;
+        this.drafts = drafts;
+        this.diary = diary;
         this.aiProperties = aiProperties;
         this.properties = properties;
     }
@@ -66,7 +85,9 @@ public class TelegramIntakeService {
         }
         try {
             UUID accountId = accounts.resolveAccount(message.telegramUserId());
-            return respond(accountId, message, photo);
+            return message.isButton()
+                    ? button(accountId, message.callbackData())
+                    : respond(accountId, message, photo);
         } catch (RuntimeException exception) {
             // Непредвиденный сбой: освобождаем апдейт, чтобы повторная доставка обработалась заново.
             updates.deleteById(message.updateId());
@@ -77,11 +98,12 @@ public class TelegramIntakeService {
     private TelegramReply respond(UUID accountId, TelegramInboundMessage message, IncomingPhoto photo) {
         String text = message.text() == null ? "" : message.text().strip();
         if (photo != null && photo.bytes() != null && photo.bytes().length > 0) {
-            return recognize(accountId, RecognitionKind.PHOTO,
+            // Новое фото — всегда новая еда, прошлая оценка закрывается.
+            return estimate(accountId, RecognitionKind.PHOTO, DraftSource.PHOTO, null,
                     () -> recognitionModel.recognizePhotoWithUsage(photo.bytes(), photo.contentType()));
         }
         if (text.startsWith("/")) {
-            return command(text);
+            return command(accountId, text);
         }
         if (text.isEmpty()) {
             return TelegramReply.of(TelegramTexts.HELP);
@@ -89,10 +111,15 @@ public class TelegramIntakeService {
         if (text.length() > properties.maxTextLength()) {
             return TelegramReply.of(TelegramTexts.TOO_LONG.formatted(properties.maxTextLength()));
         }
-        return recognize(accountId, RecognitionKind.TEXT, () -> recognitionModel.recognizeTextWithUsage(text));
+        Optional<MealDraft> active = drafts.findActive(accountId);
+        if (active.isPresent()) {
+            return revise(accountId, active.get(), text);
+        }
+        return estimate(accountId, RecognitionKind.TEXT, DraftSource.TEXT, text,
+                () -> recognitionModel.recognizeTextWithUsage(text));
     }
 
-    private static TelegramReply command(String text) {
+    private TelegramReply command(UUID accountId, String text) {
         String command = text.split("\\s+", 2)[0].toLowerCase(Locale.ROOT);
         int botNameStart = command.indexOf('@');
         if (botNameStart > 0) {
@@ -101,18 +128,75 @@ public class TelegramIntakeService {
         return switch (command) {
             case "/start" -> TelegramReply.of(TelegramTexts.GREETING);
             case "/help" -> TelegramReply.of(TelegramTexts.HELP);
+            case "/diary", "/дневник" -> TelegramReply.of(diaryFormatter.day(diary.today(accountId)));
             default -> TelegramReply.of(TelegramTexts.UNKNOWN_COMMAND);
         };
     }
 
-    private TelegramReply recognize(UUID accountId, RecognitionKind kind, Supplier<ModelRecognition> call) {
+    /** Нажатие кнопки под прошлой оценкой. Черновик ищется вместе с аккаунтом — чужой не открыть. */
+    private TelegramReply button(UUID accountId, String callbackData) {
+        Optional<DialogCallback> callback = DialogCallback.parse(callbackData);
+        if (callback.isEmpty()) {
+            log.info("Кнопка с неизвестными данными — отвечаем, что оценка закрыта");
+            return TelegramReply.of(TelegramTexts.DRAFT_GONE);
+        }
+        Optional<MealDraft> draft = drafts.find(accountId, callback.get().draftId());
+        if (draft.isEmpty()) {
+            return TelegramReply.of(TelegramTexts.DRAFT_GONE);
+        }
+        return switch (callback.get().action()) {
+            case SAVE -> save(accountId, draft.get());
+            case DROP -> {
+                drafts.discard(accountId);
+                yield TelegramReply.of(TelegramTexts.DROPPED);
+            }
+            case AS_IS -> revise(accountId, draft.get(), RecognitionContract.NO_DETAILS_COMMENT);
+        };
+    }
+
+    private TelegramReply save(UUID accountId, MealDraft draft) {
+        if (draft.result().items().isEmpty()) {
+            return TelegramReply.of(TelegramTexts.NOTHING_TO_SAVE);
+        }
+        String reply = diaryFormatter.saved(diary.record(draft));
+        drafts.discard(accountId);
+        log.info("Запись дневника создана: позиций {}, уточнений до записи {}",
+                draft.result().items().size(), draft.revision());
+        return TelegramReply.of(reply);
+    }
+
+    private TelegramReply estimate(
+            UUID accountId,
+            RecognitionKind kind,
+            DraftSource source,
+            String inputText,
+            Supplier<ModelRecognition> call
+    ) {
+        return recognize(accountId, kind, call,
+                result -> drafts.save(accountId, source, inputText, result, 0));
+    }
+
+    /** Пересчёт той же еды с учётом замечания пользователя: прошлая оценка уходит модели как контекст. */
+    private TelegramReply revise(UUID accountId, MealDraft draft, String comment) {
+        String request = RecognitionContract.revisionRequest(draft.inputText(), drafts.write(draft.result()), comment);
+        return recognize(accountId, RecognitionKind.REVISION,
+                () -> recognitionModel.recognizeTextWithUsage(request),
+                result -> drafts.save(accountId, draft.source(), draft.inputText(), result, draft.revision() + 1));
+    }
+
+    private TelegramReply recognize(
+            UUID accountId,
+            RecognitionKind kind,
+            Supplier<ModelRecognition> call,
+            Function<RecognitionResult, MealDraft> store
+    ) {
         long startedAt = System.nanoTime();
         try {
             ModelRecognition recognition = call.get();
             usageRecorder.record(accountId, kind.success(), providerName(), recognition.usage(), elapsed(startedAt));
             log.info("Распознавание {}: позиций {}, вопросов {}, {} мс", kind, recognition.result().items().size(),
                     recognition.result().questions().size(), elapsed(startedAt).toMillis());
-            return TelegramReply.of(formatter.format(recognition.result()));
+            return estimateReply(store, recognition.result());
         } catch (IllegalArgumentException exception) {
             log.info("Распознавание {} отклонено как некорректный ввод", kind);
             return TelegramReply.of(TelegramTexts.CANNOT_READ_INPUT);
@@ -126,6 +210,26 @@ public class TelegramIntakeService {
         }
     }
 
+    /** Оценку показываем вместе с решением, которое от пользователя требуется. */
+    private TelegramReply estimateReply(
+            Function<RecognitionResult, MealDraft> store,
+            RecognitionResult result
+    ) {
+        String text = formatter.format(result);
+        if (result.items().isEmpty() && result.questions().isEmpty()) {
+            return TelegramReply.of(text);
+        }
+        MealDraft draft = store.apply(result);
+        if (!result.items().isEmpty()) {
+            return TelegramReply.withButtons(text + "\n\n" + TelegramTexts.SAVE_QUESTION, List.of(
+                    new DialogCallback(DialogCallback.Action.SAVE, draft.id()).button(TelegramTexts.BUTTON_SAVE),
+                    new DialogCallback(DialogCallback.Action.DROP, draft.id()).button(TelegramTexts.BUTTON_DROP)));
+        }
+        return TelegramReply.withButtons(text + "\n\n" + TelegramTexts.ANSWER_OR_AS_IS, List.of(
+                new DialogCallback(DialogCallback.Action.AS_IS, draft.id()).button(TelegramTexts.BUTTON_AS_IS),
+                new DialogCallback(DialogCallback.Action.DROP, draft.id()).button(TelegramTexts.BUTTON_DROP)));
+    }
+
     private String providerName() {
         return aiProperties.provider().configName();
     }
@@ -136,7 +240,8 @@ public class TelegramIntakeService {
 
     private enum RecognitionKind {
         TEXT,
-        PHOTO;
+        PHOTO,
+        REVISION;
 
         String success() {
             return "RECOGNITION_" + name();

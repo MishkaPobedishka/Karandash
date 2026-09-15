@@ -1,5 +1,6 @@
 package ru.karandash.telegram.polling;
 
+import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
@@ -157,6 +158,75 @@ class MessageHandlerTest {
         assertThat(MessageHandler.choosePhotoSize(sizes, 1_000_000).fileId()).isEqualTo("m");
         assertThat(MessageHandler.choosePhotoSize(List.of(sizes.get(2)), 1_000_000).fileId()).isEqualTo("l");
         assertThat(MessageHandler.choosePhotoSize(List.of(sizes.get(2)), 100_000)).isNull();
+    }
+
+    @Test
+    void putsCoreButtonsUnderTheLastMessage() throws Exception {
+        core.expect(requestTo(CORE_URL)).andRespond(withSuccess("""
+                {"duplicate":false,"messages":["Похоже на: гречка"],
+                "buttons":[{"text":"✓ Записать в дневник","data":"save:1-2"},
+                {"text":"✗ Не записывать","data":"drop:1-2"}]}""", MediaType.APPLICATION_JSON));
+
+        handler.handle(update(20, "private", "{\"text\":\"гречка\"}"));
+
+        assertThat(telegram.sentMessages).singleElement().satisfies(message -> {
+            JsonNode keyboard = message.path("reply_markup").path("inline_keyboard");
+            assertThat(keyboard).as("кнопки идут одна под другой").hasSize(2);
+            assertThat(keyboard.get(0).get(0).path("text").asText()).isEqualTo("✓ Записать в дневник");
+            assertThat(keyboard.get(0).get(0).path("callback_data").asText()).isEqualTo("save:1-2");
+            assertThat(keyboard.get(1).get(0).path("callback_data").asText()).isEqualTo("drop:1-2");
+        });
+    }
+
+    @Test
+    void forwardsButtonPressAndTakesKeyboardAway() throws Exception {
+        core.expect(requestTo(CORE_URL))
+                .andExpect(content().string(allOf(
+                        containsString("\"callbackData\":\"save:7f1c\""),
+                        containsString("\"telegramUserId\":42"))))
+                .andRespond(withSuccess("{\"duplicate\":false,\"messages\":[\"Записал в дневник.\"]}",
+                        MediaType.APPLICATION_JSON));
+
+        handler.handle(objectMapper.readValue("""
+                {"update_id":21,"callback_query":{"id":"cb-1","from":{"id":42,"is_bot":false},
+                "data":"save:7f1c","message":{"message_id":55,"chat":{"id":42,"type":"private"}}}}""", Update.class));
+
+        core.verify();
+        assertThat(telegram.answeredCallbacks).singleElement()
+                .satisfies(call -> assertThat(call.path("callback_query_id").asText()).isEqualTo("cb-1"));
+        assertThat(telegram.editedMarkups).singleElement().satisfies(edit -> {
+            assertThat(edit.path("message_id").asLong()).isEqualTo(55);
+            assertThat(edit.path("reply_markup").path("inline_keyboard")).isEmpty();
+        });
+        assertThat(telegram.sentMessages).singleElement()
+                .satisfies(message -> assertThat(message.path("text").asText()).isEqualTo("Записал в дневник."));
+    }
+
+    @Test
+    void answersButtonPressEvenWhenCoreIsDown() throws Exception {
+        core.expect(requestTo(CORE_URL)).andRespond(withStatus(HttpStatus.BAD_GATEWAY));
+
+        handler.handleSafely(objectMapper.readValue("""
+                {"update_id":22,"callback_query":{"id":"cb-2","from":{"id":42,"is_bot":false},
+                "data":"save:7f1c","message":{"message_id":56,"chat":{"id":42,"type":"private"}}}}""", Update.class));
+
+        assertThat(telegram.answeredCallbacks).as("часы на кнопке гасим до похода в ядро").hasSize(1);
+        assertThat(telegram.sentMessages).singleElement()
+                .satisfies(message -> assertThat(message.path("text").asText()).isEqualTo(BotTexts.CORE_UNAVAILABLE));
+    }
+
+    @Test
+    void ignoresButtonPressFromGroupChat() throws Exception {
+        core.expect(never(), requestTo(CORE_URL));
+
+        handler.handle(objectMapper.readValue("""
+                {"update_id":23,"callback_query":{"id":"cb-3","from":{"id":42,"is_bot":false},
+                "data":"save:7f1c","message":{"message_id":57,"chat":{"id":-100,"type":"supergroup"}}}}""",
+                Update.class));
+
+        core.verify();
+        assertThat(telegram.answeredCallbacks).isEmpty();
+        assertThat(telegram.sentMessages).isEmpty();
     }
 
     private Update update(long updateId, String chatType, String messageFields) throws Exception {

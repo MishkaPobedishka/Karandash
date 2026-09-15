@@ -4,6 +4,7 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import ru.karandash.contracts.telegram.TelegramInboundMessage;
 import ru.karandash.contracts.telegram.TelegramReply;
+import ru.karandash.telegram.api.CallbackQuery;
 import ru.karandash.telegram.api.Message;
 import ru.karandash.telegram.api.PhotoSize;
 import ru.karandash.telegram.api.TelegramApiClient;
@@ -20,7 +21,7 @@ import java.util.concurrent.ScheduledFuture;
 import java.util.concurrent.TimeUnit;
 
 /**
- * Одно входящее сообщение: личный чат → фото или текст в ядро → ответ пользователю.
+ * Один входящий апдейт: личный чат → фото, текст или нажатие кнопки в ядро → ответ пользователю.
  * В логи попадают только номер апдейта и исход — ни текста, ни фото, ни идентификатора пользователя.
  */
 public class MessageHandler {
@@ -59,6 +60,10 @@ public class MessageHandler {
     }
 
     void handle(Update update) {
+        if (update.callbackQuery() != null) {
+            handleButton(update, update.callbackQuery());
+            return;
+        }
         Message message = update.message();
         if (message == null || message.chat() == null || !message.chat().isPrivate()
                 || message.from() == null || message.from().bot()) {
@@ -75,7 +80,8 @@ public class MessageHandler {
         try {
             byte[] photo = message.hasPhoto() ? downloadPhoto(message.photo()) : null;
             String text = message.hasPhoto() ? message.caption() : message.text();
-            reply = core.submit(new TelegramInboundMessage(update.updateId(), message.from().id(), text), photo);
+            reply = core.submit(
+                    TelegramInboundMessage.message(update.updateId(), message.from().id(), text), photo);
         } catch (TelegramApiClient.FileTooLargeException exception) {
             log.info("Апдейт {}: фото больше лимита", update.updateId());
             telegram.sendMessage(chatId, BotTexts.PHOTO_TOO_LARGE);
@@ -95,9 +101,77 @@ public class MessageHandler {
             log.info("Апдейт {} уже обработан ядром — повторный ответ не отправляется", update.updateId());
             return;
         }
-        reply.messages().forEach(text -> telegram.sendMessage(chatId, text));
+        send(chatId, reply);
         log.info("Апдейт {} обработан: {} ({} сообщ.)", update.updateId(),
                 message.hasPhoto() ? "фото" : "текст", reply.messages().size());
+    }
+
+    /** Нажатие кнопки под прошлым ответом бота. */
+    private void handleButton(Update update, CallbackQuery callback) {
+        if (callback.from() == null || callback.from().bot() || callback.id() == null || callback.data() == null) {
+            log.debug("Апдейт {} пропущен: нажатие без пользователя или данных", update.updateId());
+            return;
+        }
+        if (callback.message() != null && callback.message().chat() != null
+                && !callback.message().chat().isPrivate()) {
+            log.debug("Апдейт {} пропущен: нажатие не в личном чате", update.updateId());
+            return;
+        }
+        Long chatId = update.chatId();
+        if (chatId == null) {
+            log.debug("Апдейт {} пропущен: непонятно, куда отвечать", update.updateId());
+            return;
+        }
+        // Часы на кнопке гасим сразу: ответ ядра вместе с моделью занимает секунды.
+        answerQuietly(callback.id());
+        if (callback.message() != null) {
+            clearButtonsQuietly(chatId, callback.message().messageId());
+        }
+        ScheduledFuture<?> typing = startTyping(chatId);
+        TelegramReply reply;
+        try {
+            reply = core.submit(
+                    TelegramInboundMessage.button(update.updateId(), callback.from().id(), callback.data()), null);
+        } catch (CoreUnavailableException exception) {
+            log.warn("Апдейт {}: {}", update.updateId(), exception.getMessage());
+            telegram.sendMessage(chatId, BotTexts.CORE_UNAVAILABLE);
+            return;
+        } finally {
+            typing.cancel(false);
+        }
+        if (reply.duplicate()) {
+            log.info("Апдейт {} уже обработан ядром — повторный ответ не отправляется", update.updateId());
+            return;
+        }
+        send(chatId, reply);
+        log.info("Апдейт {} обработан: кнопка ({} сообщ.)", update.updateId(), reply.messages().size());
+    }
+
+    /** Кнопки ядро присылает к последнему сообщению ответа. */
+    private void send(long chatId, TelegramReply reply) {
+        List<String> messages = reply.messages();
+        for (int index = 0; index < messages.size(); index++) {
+            boolean last = index == messages.size() - 1;
+            telegram.sendMessage(chatId, messages.get(index), last ? reply.buttons() : List.of());
+        }
+    }
+
+    private void answerQuietly(String callbackQueryId) {
+        try {
+            telegram.answerCallbackQuery(callbackQueryId);
+        } catch (RuntimeException exception) {
+            // Нажатие уже протухло — на дальнейшую обработку это не влияет.
+            log.debug("Не удалось подтвердить нажатие кнопки");
+        }
+    }
+
+    private void clearButtonsQuietly(long chatId, long messageId) {
+        try {
+            telegram.clearButtons(chatId, messageId);
+        } catch (RuntimeException exception) {
+            // Сообщение могли удалить или отредактировать — защита от второго нажатия всё равно есть в ядре.
+            log.debug("Не удалось убрать кнопки у прошлого сообщения");
+        }
     }
 
     private byte[] downloadPhoto(List<PhotoSize> sizes) {

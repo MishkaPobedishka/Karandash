@@ -27,9 +27,8 @@ public class UpdateProcessor {
     public void process(List<Update> updates) throws InterruptedException {
         Map<Long, List<Update>> byChat = new LinkedHashMap<>();
         for (Update update : updates) {
-            long chatKey = update.message() != null && update.message().chat() != null
-                    ? update.message().chat().id()
-                    : Long.MIN_VALUE;
+            Long chat = update.chatId();
+            long chatKey = chat == null ? Long.MIN_VALUE : chat;
             byChat.computeIfAbsent(chatKey, key -> new ArrayList<>()).add(update);
         }
         List<Future<?>> tasks = new ArrayList<>();

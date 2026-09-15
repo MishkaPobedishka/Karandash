@@ -32,6 +32,8 @@ public final class FakeTelegramServer implements AutoCloseable {
     public final List<Long> offsets = new CopyOnWriteArrayList<>();
     public final List<JsonNode> sentMessages = new CopyOnWriteArrayList<>();
     public final List<JsonNode> chatActions = new CopyOnWriteArrayList<>();
+    public final List<JsonNode> answeredCallbacks = new CopyOnWriteArrayList<>();
+    public final List<JsonNode> editedMarkups = new CopyOnWriteArrayList<>();
     public final List<String> requestPaths = new CopyOnWriteArrayList<>();
 
     public FakeTelegramServer() throws IOException {
@@ -113,6 +115,14 @@ public final class FakeTelegramServer implements AutoCloseable {
             case "sendMessage" -> {
                 sentMessages.add(request);
                 respond(exchange, 200, "{\"ok\":true,\"result\":{\"message_id\":" + sentMessages.size() + "}}");
+            }
+            case "answerCallbackQuery" -> {
+                answeredCallbacks.add(request);
+                respond(exchange, 200, "{\"ok\":true,\"result\":true}");
+            }
+            case "editMessageReplyMarkup" -> {
+                editedMarkups.add(request);
+                respond(exchange, 200, "{\"ok\":true,\"result\":{\"message_id\":1}}");
             }
             case "sendChatAction" -> {
                 chatActions.add(request);
