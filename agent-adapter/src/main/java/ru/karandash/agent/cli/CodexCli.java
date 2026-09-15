@@ -9,8 +9,11 @@ import ru.karandash.contracts.ai.RecognitionContract;
 
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
+import java.nio.file.FileSystems;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.nio.file.StandardCopyOption;
+import java.nio.file.attribute.PosixFilePermissions;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Locale;
@@ -19,8 +22,9 @@ import java.util.Set;
 
 /**
  * {@code codex exec}: промпт через stdin, фото — временным файлом в каталоге вызова ({@code --image}).
- * Флаги взяты из исходников codex-rs ({@code exec/src/cli.rs}, {@code features/src/lib.rs});
- * на машине разработки Codex не установлен, реализация проверена только фейковым CLI.
+ * Флаги взяты из исходников codex-rs ({@code exec/src/cli.rs}, {@code features/src/lib.rs}) и проверены
+ * на codex-cli 0.154.0: с ними модель отвечает по контракту, а на попытку выполнить команду из
+ * пользовательского текста ни одного события запуска команд не появляется.
  */
 public final class CodexCli implements AgentCli {
 
@@ -32,6 +36,7 @@ public final class CodexCli implements AgentCli {
     private static final Set<String> CREDENTIAL_VARIABLES = Set.of("CODEX_API_KEY", "OPENAI_API_KEY");
     private static final Set<String> FORBIDDEN_ITEMS =
             Set.of("command_execution", "file_change", "mcp_tool_call", "web_search", "collab_tool_call");
+    private static final String AUTH_FILE = "auth.json";
     private static final List<String> AUTH_FAILURE_MARKERS =
             List.of("401", "unauthorized", "invalid api key", "incorrect api key", "not logged in");
 
@@ -54,6 +59,11 @@ public final class CodexCli implements AgentCli {
     @Override
     public Set<String> credentialVariables() {
         return CREDENTIAL_VARIABLES;
+    }
+
+    @Override
+    public boolean hasFileCredentials() {
+        return authFileReadable() || (settings.home() != null && Files.isReadable(settings.home().resolve(AUTH_FILE)));
     }
 
     @Override
@@ -88,12 +98,46 @@ public final class CodexCli implements AgentCli {
     @Override
     public CliInvocation healthCheck(CallDirectory directory) {
         List<String> command = new ArrayList<>(settings.command());
-        command.add("--version");
+        command.addAll(List.of("login", "status"));
         return new CliInvocation(command, new byte[0], isolation(directory), CREDENTIAL_VARIABLES);
     }
 
     private Map<String, String> isolation(CallDirectory directory) {
-        return Map.of("CODEX_HOME", directory.config().toString());
+        return Map.of("CODEX_HOME", codexHome(directory).toString());
+    }
+
+    /**
+     * Каталог настроек CLI. Для подписки он постоянный: CLI сам обновляет там токен, и в одноразовом
+     * каталоге обновление терялось бы, а старый токен после ротации перестал бы работать.
+     */
+    private Path codexHome(CallDirectory directory) {
+        if (settings.home() == null) {
+            return directory.config();
+        }
+        try {
+            Files.createDirectories(settings.home());
+            copyAuthFileIfAbsent(settings.home());
+        } catch (IOException exception) {
+            throw new CliCallException(CliCallException.Reason.START_FAILED,
+                    "Не удалось подготовить каталог настроек CLI", exception);
+        }
+        return settings.home();
+    }
+
+    /** Кладём auth.json из секрета один раз: дальше файлом владеет сам CLI и обновляет его. */
+    private void copyAuthFileIfAbsent(Path home) throws IOException {
+        Path target = home.resolve(AUTH_FILE);
+        if (Files.exists(target) || !authFileReadable()) {
+            return;
+        }
+        Files.copy(settings.authFile(), target, StandardCopyOption.REPLACE_EXISTING);
+        if (FileSystems.getDefault().supportedFileAttributeViews().contains("posix")) {
+            Files.setPosixFilePermissions(target, PosixFilePermissions.fromString("rw-------"));
+        }
+    }
+
+    private boolean authFileReadable() {
+        return settings.authFile() != null && Files.isReadable(settings.authFile());
     }
 
     private boolean hasModel() {

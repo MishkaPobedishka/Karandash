@@ -6,7 +6,7 @@
 |---|---|---|---|
 | `postgres` (StatefulSet, PVC 5 Gi) | `pythagoras`, РФ | персональные данные | `karandash-db` |
 | `core` | `pythagoras`, РФ | единственный с доступом к базе | `karandash-db`, `karandash-core` |
-| `agent-adapter` | `n8n-hassle` (Валера, Алматы), зарубежная | без состояния, `/tmp` в памяти | `karandash-agent` |
+| `agent-adapter` | `n8n-hassle` (Валера, Алматы), зарубежная | `/tmp` в памяти; постоянный только каталог входа Codex | `karandash-agent`, `karandash-codex` |
 | `telegram-bot` (1 реплика, `Recreate`) | `n8n-hassle` (Валера, Алматы), зарубежная | без состояния, без Service | `karandash-bot` |
 | RabbitMQ — общий, Дымохода (`chimney/rabbitmq`) | `pythagoras`, РФ | vhost `karandash` | пароли в `karandash-core`, `karandash-bot` |
 
@@ -26,7 +26,7 @@
 - [ ] **Зарубежная нода подключена к кластеру.** Это `n8n-hassle` (Валера, Алматы): 4 vCPU, 7,8 ГБ, свободно около 4,3 ГБ — с запасом под два параллельных вызова агента (`AGENT_MAX_CONCURRENT_CALLS=2`, limit 1280 Mi; в простое агент занимает около 256 Mi). Порядок подключения — ниже, раздел «Зарубежная нода». На сервере живут n8n, Jitsi и VPN: после выката смотреть `kubectl top node` и что рабочим сервисам хватает памяти.
 - [ ] **Доступ к брокеру Дымохода из namespace `karandash`.** Политика `allow-rabbitmq` Дымохода перечисляет свои поды и `ipBlock 0.0.0.0/0`. Если подключение из `karandash` всё же режется, добавить в неё `namespaceSelector` `kubernetes.io/metadata.name: karandash` — это правка в репозитории Дымохода.
 - [ ] **Сетевые политики Карандаша** (`components/network-policies`) включены и проверены на кластере: без них изоляцию держат только разные секреты, а не сеть.
-- [ ] **`AGENT_CLI=codex`** включается только после проверки на настоящем `codex exec`, что shell, файлы и сеть модели недоступны: сейчас реализация проверена лишь фейковым CLI. По умолчанию — `claude`.
+- [ ] **Учётные данные модели.** Сейчас в манифестах `AGENT_CLI=codex` с подписочным входом ChatGPT: секрет `karandash-codex` с файлом `auth.json`, постоянный каталог `/var/lib/karandash/codex` на томе. Проверено на codex-cli 0.154.0: модель отвечает по контракту, а на попытку выполнить команду из пользовательского текста событий запуска команд не появляется. Помните про ротацию: ту же копию `auth.json` нельзя держать и на личной машине, и в кластере. Альтернатива — `AGENT_CLI=claude` с ключом Anthropic в `karandash-agent`.
 
 Отдельно, к Дымоходу: сервис `rabbitmq` у него типа NodePort. AMQP (30672) и порты management/метрик открыты на внешних адресах нод без TLS. Vhost Карандаша от этого защищён только паролями его пользователей.
 
@@ -124,7 +124,8 @@ kubectl -n chimney exec statefulset/rabbitmq -- rabbitmqctl set_permissions -p k
 
 ```sh
 for service in core agent-adapter telegram-bot; do
-  docker build -f "$service/Dockerfile" -t "localhost:5000/karandash-$service:latest" . \
+  docker build -f "$service/Dockerfile" -t "localhost:5000/karandash-$service:latest" \
+    ${service:+--build-arg CODEX_VERSION=0.154.0} . \
     && docker push "localhost:5000/karandash-$service:latest"
 done
 

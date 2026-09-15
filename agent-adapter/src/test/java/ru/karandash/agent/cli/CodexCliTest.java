@@ -26,7 +26,8 @@ class CodexCliTest {
     Path temp;
 
     private final ObjectMapper objectMapper = new ObjectMapper();
-    private final CodexCli cli = new CodexCli(new AgentProperties.Codex(List.of("codex"), "gpt-test"), objectMapper);
+    private final CodexCli cli =
+            new CodexCli(new AgentProperties.Codex(List.of("codex"), "gpt-test", null, null), objectMapper);
 
     @Test
     void launchesReadOnlyWithoutShellAndOtherTools() throws Exception {
@@ -68,7 +69,7 @@ class CodexCliTest {
         FakeCliSupport fake = new FakeCliSupport(temp);
         fake.mode("codex-ok");
         CliProcessRunner runner = new CliProcessRunner(FakeCliSupport.parentEnvironment(Map.of()));
-        CodexCli fakeCodex = new CodexCli(new AgentProperties.Codex(fake.command(), null), objectMapper);
+        CodexCli fakeCodex = new CodexCli(new AgentProperties.Codex(fake.command(), null, null, null), objectMapper);
 
         try (CallDirectory directory = CallDirectory.create(temp.resolve("calls"))) {
             CliOutputHandler handler = fakeCodex.newOutputHandler();
@@ -88,7 +89,7 @@ class CodexCliTest {
         FakeCliSupport fake = new FakeCliSupport(temp);
         fake.mode("codex-shell");
         CliProcessRunner runner = new CliProcessRunner(FakeCliSupport.parentEnvironment(Map.of()));
-        CodexCli fakeCodex = new CodexCli(new AgentProperties.Codex(fake.command(), null), objectMapper);
+        CodexCli fakeCodex = new CodexCli(new AgentProperties.Codex(fake.command(), null, null, null), objectMapper);
         long startedAt = System.nanoTime();
 
         try (CallDirectory directory = CallDirectory.create(temp.resolve("calls"))) {
@@ -100,6 +101,39 @@ class CodexCliTest {
                     .isEqualTo(CliCallException.Reason.UNSAFE_BEHAVIOR);
         }
         assertThat(Duration.ofNanos(System.nanoTime() - startedAt)).isLessThan(Duration.ofSeconds(20));
+    }
+
+    @Test
+    void subscriptionLoginUsesPersistentHomeAndCopiesAuthOnce() throws Exception {
+        Path authFile = Files.writeString(temp.resolve("auth.json"), "{\"auth_mode\":\"chatgpt\"}");
+        Path home = temp.resolve("codex-home");
+        CodexCli subscription = new CodexCli(
+                new AgentProperties.Codex(List.of("codex"), null, authFile, home), objectMapper);
+
+        try (CallDirectory directory = CallDirectory.create(temp.resolve("calls"))) {
+            CliInvocation invocation = subscription.prepare(new RecognitionTask.Text("суп"), directory);
+
+            assertThat(invocation.environment()).containsEntry("CODEX_HOME", home.toString());
+            assertThat(home.resolve("auth.json")).exists();
+            assertThat(subscription.hasFileCredentials()).isTrue();
+
+            // CLI сам обновляет токен — копия из секрета не должна затирать обновление.
+            Files.writeString(home.resolve("auth.json"), "{\"обновлённый\":true}");
+            subscription.prepare(new RecognitionTask.Text("щи"), directory);
+            assertThat(Files.readString(home.resolve("auth.json"))).contains("обновлённый");
+
+            assertThat(subscription.healthCheck(directory).command()).containsExactly("codex", "login", "status");
+        }
+    }
+
+    @Test
+    void withoutSubscriptionKeepsPerCallHomeAndEnvCredentials() throws Exception {
+        try (CallDirectory directory = CallDirectory.create(temp.resolve("calls"))) {
+            CliInvocation invocation = cli.prepare(new RecognitionTask.Text("суп"), directory);
+
+            assertThat(invocation.environment()).containsEntry("CODEX_HOME", directory.config().toString());
+            assertThat(cli.hasFileCredentials()).isFalse();
+        }
     }
 
     @Test

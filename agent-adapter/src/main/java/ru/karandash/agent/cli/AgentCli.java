@@ -14,6 +14,11 @@ public interface AgentCli {
     /** Имена переменных окружения с учётными данными, которые передаются процессу. */
     Set<String> credentialVariables();
 
+    /** Учётные данные лежат файлом (подписочный вход), а не в переменных окружения. */
+    default boolean hasFileCredentials() {
+        return false;
+    }
+
     CliInvocation prepare(RecognitionTask task, CallDirectory directory) throws IOException;
 
     CliOutputHandler newOutputHandler();

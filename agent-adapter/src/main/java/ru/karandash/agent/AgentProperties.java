@@ -34,7 +34,11 @@ public record AgentProperties(
 
     public record Codex(
             List<String> command,
-            String model
+            String model,
+            /** Файл auth.json подписочного входа: монтируется секретом, только на чтение. */
+            Path authFile,
+            /** Постоянный CODEX_HOME. Нужен подписке: CLI обновляет там токен, и обновление должно сохраняться. */
+            Path home
     ) {
     }
 }

@@ -46,3 +46,6 @@ karandash:
     codex:
       command: ${AGENT_CODEX_COMMAND:codex}
       model: ${AGENT_CODEX_MODEL:}
+      # Подписочный вход: файл auth.json из секрета и постоянный каталог, где CLI обновляет токен.
+      auth-file: ${CODEX_AUTH_FILE:}
+      home: ${CODEX_HOME_DIR:}

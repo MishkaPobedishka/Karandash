@@ -43,6 +43,8 @@ spec:
         runAsNonRoot: true
         runAsUser: 10001
         runAsGroup: 10001
+        # Том с настройками CLI создаётся местным провизионером от root — fsGroup делает его доступным поду.
+        fsGroup: 10001
         seccompProfile:
           type: RuntimeDefault
       containers:
@@ -59,7 +61,12 @@ spec:
                   name: karandash-agent
                   key: AGENT_SERVICE_TOKEN
             - name: AGENT_CLI
-              value: claude
+              value: codex
+            # Подписочный вход Codex: файл из секрета копируется в постоянный каталог, где CLI обновляет токен.
+            - name: CODEX_AUTH_FILE
+              value: /etc/karandash/codex/auth.json
+            - name: CODEX_HOME_DIR
+              value: /var/lib/karandash/codex
             - name: AGENT_CLAUDE_MODEL
               value: sonnet
             # Зарубежная нода — Валера (Алматы), 4 vCPU и 7,8 ГБ: два вызова CLI одновременно.
@@ -116,8 +123,34 @@ spec:
           volumeMounts:
             - name: tmp
               mountPath: /tmp
+            - name: codex-auth
+              mountPath: /etc/karandash/codex
+              readOnly: true
+            - name: codex-home
+              mountPath: /var/lib/karandash/codex
       volumes:
         - name: tmp
           emptyDir:
             medium: Memory
             sizeLimit: 512Mi
+        - name: codex-auth
+          secret:
+            secretName: karandash-codex
+            defaultMode: 0400
+            optional: true
+        - name: codex-home
+          persistentVolumeClaim:
+            claimName: karandash-codex-home
+---
+# Постоянный CODEX_HOME. Подписочный токен живёт пару дней, CLI обновляет его сам — обновление
+# должно переживать перезапуск пода, иначе после ротации вход перестанет работать.
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: karandash-codex-home
+spec:
+  accessModes: ["ReadWriteOnce"]
+  storageClassName: local-path
+  resources:
+    requests:
+      storage: 128Mi

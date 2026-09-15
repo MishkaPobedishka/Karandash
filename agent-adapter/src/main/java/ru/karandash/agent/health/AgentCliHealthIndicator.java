@@ -62,7 +62,7 @@ public class AgentCliHealthIndicator implements HealthIndicator {
     }
 
     private Health check() {
-        if (!runner.hasAnyVariable(cli.credentialVariables())) {
+        if (!runner.hasAnyVariable(cli.credentialVariables()) && !cli.hasFileCredentials()) {
             return down("Не заданы учётные данные CLI: " + String.join(" или ", cli.credentialVariables()));
         }
         try (CallDirectory directory = CallDirectory.create(properties.workDir())) {
