@@ -124,8 +124,10 @@ kubectl -n chimney exec statefulset/rabbitmq -- rabbitmqctl set_permissions -p k
 
 ```sh
 for service in core agent-adapter telegram-bot; do
-  docker build -f "$service/Dockerfile" -t "localhost:5000/karandash-$service:latest" \
-    ${service:+--build-arg CODEX_VERSION=0.154.0} . \
+  # Codex ставится только в образ агента.
+  extra=""
+  [ "$service" = agent-adapter ] && extra="--build-arg CODEX_VERSION=0.154.0"
+  docker build -f "$service/Dockerfile" -t "localhost:5000/karandash-$service:latest" $extra . \
     && docker push "localhost:5000/karandash-$service:latest"
 done
 
