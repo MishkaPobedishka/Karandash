@@ -48,6 +48,14 @@ interface AccountRepository extends JpaRepository<AccountEntity, UUID> {
     @Query(value = SELECT_ACCESS + " where a.access = 'ALLOWED' order by a.created_at", nativeQuery = true)
     List<AccessRow> findAllowed();
 
+    /** Кого знаем только по номеру: имени Telegram про них пока не присылал. */
+    @Query(value = """
+            select ti.telegram_id from telegram_identity ti
+            where ti.display_name is null and ti.username is null
+            order by ti.created_at limit :limit
+            """, nativeQuery = true)
+    List<Long> findTelegramIdsWithoutName(@Param("limit") int limit);
+
     /**
      * Решение по заявке принимает тот администратор, чьё нажатие пришло первым:
      * условие на состояние делает второе нажатие безобидным.

@@ -11,6 +11,9 @@ import org.springframework.web.client.RestClientException;
 import org.springframework.web.client.RestClientResponseException;
 import ru.karandash.contracts.telegram.TelegramInboundMessage;
 import ru.karandash.contracts.telegram.TelegramReply;
+import ru.karandash.contracts.telegram.TelegramUserName;
+
+import java.util.List;
 
 /**
  * Передаёт входящее сообщение в ядро (нода РФ) и получает готовый ответ пользователю.
@@ -21,6 +24,22 @@ public class CoreClient {
 
     public CoreClient(RestClient restClient) {
         this.restClient = restClient;
+    }
+
+    /** Возвращает ядру имена, которые приёмщик узнал в Telegram. */
+    public void submitNames(List<TelegramUserName> names) {
+        try {
+            restClient.post()
+                    .uri("/internal/telegram/names")
+                    .contentType(MediaType.APPLICATION_JSON)
+                    .body(names)
+                    .retrieve()
+                    .toBodilessEntity();
+        } catch (RestClientResponseException exception) {
+            throw new CoreUnavailableException("Ядро ответило " + exception.getStatusCode().value(), exception);
+        } catch (RestClientException exception) {
+            throw new CoreUnavailableException("Ядро недоступно: " + exception.getClass().getSimpleName(), exception);
+        }
     }
 
     public TelegramReply submit(TelegramInboundMessage message, byte[] photo) {

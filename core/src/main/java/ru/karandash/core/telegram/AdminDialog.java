@@ -24,7 +24,9 @@ class AdminDialog {
 
     private static final int PUBLISHED_TO_SHOW = 5;
     /** Сколько людей показываем кнопками за раз: длинная клавиатура в Telegram неудобна. */
-    private static final int ON_SCREEN = 5;
+    private static final int ON_SCREEN = 8;
+    /** За раз спрашиваем имена не больше чем у стольких человек. */
+    private static final int NAMES_PER_REQUEST = 20;
 
     private final AccessService access;
     private final ChangelogService changelog;
@@ -58,20 +60,20 @@ class AdminDialog {
         }
         AccessDecision result = decision.get();
         if (!result.applied()) {
-            return TelegramReply.of(TelegramTexts.ACCESS_ALREADY_DECIDED.formatted(result.decidedBy()));
+            return TelegramReply.screen(TelegramTexts.ACCESS_ALREADY_DECIDED.formatted(result.decidedBy()), List.of());
         }
         tellApplicant(result.account(), allow, admin.name());
         tellOtherAdmins(admin, result.account(), allow);
-        return TelegramReply.of(allow
+        return TelegramReply.screen(allow
                 ? TelegramTexts.ACCESS_DECIDED_ALLOWED.formatted(result.account().name())
-                : TelegramTexts.ACCESS_DECIDED_BLOCKED.formatted(result.account().name()));
+                : TelegramTexts.ACCESS_DECIDED_BLOCKED.formatted(result.account().name()), List.of());
     }
 
     /** Главный экран панели: сколько заявок, сколько людей, и кнопки в разделы. */
     TelegramReply panel() {
         int waiting = access.waiting().size();
         int allowed = access.allowed().size();
-        return TelegramReply.withButtons(TelegramTexts.ADMIN_PANEL.formatted(waiting, allowed), List.of(
+        return TelegramReply.screen(TelegramTexts.ADMIN_PANEL.formatted(waiting, allowed), List.of(
                 new DialogCallback(DialogCallback.Action.ADMIN_REQUESTS)
                         .button(TelegramTexts.BUTTON_ADMIN_REQUESTS.formatted(waiting)),
                 new DialogCallback(DialogCallback.Action.ADMIN_USERS)
@@ -81,10 +83,11 @@ class AdminDialog {
     }
 
     /** Заявки: на каждого по две кнопки — открыть доступ или отказать. */
-    TelegramReply requests() {
+    TelegramReply requests(AccountAccess admin) {
         List<AccountAccess> waiting = access.waiting();
+        askForMissingNames(admin);
         if (waiting.isEmpty()) {
-            return TelegramReply.withButtons(TelegramTexts.ADMIN_NO_REQUESTS, List.of(backButton()));
+            return TelegramReply.screen(TelegramTexts.ADMIN_NO_REQUESTS, List.of(backButton()));
         }
         StringBuilder text = new StringBuilder(TelegramTexts.ADMIN_REQUESTS);
         List<ReplyButton> buttons = new ArrayList<>();
@@ -99,12 +102,13 @@ class AdminDialog {
             text.append("\n\nПоказаны первые ").append(ON_SCREEN).append(" из ").append(waiting.size()).append('.');
         }
         buttons.add(backButton());
-        return TelegramReply.withButtons(text.toString(), buttons);
+        return TelegramReply.screen(text.toString(), buttons);
     }
 
     /** Список людей с доступом: нажатие открывает карточку. */
-    TelegramReply userList() {
+    TelegramReply userList(AccountAccess admin) {
         List<AccountAccess> allowed = access.allowed();
+        askForMissingNames(admin);
         List<ReplyButton> buttons = new ArrayList<>();
         allowed.stream().limit(ON_SCREEN).forEach(account -> buttons.add(
                 new DialogCallback(DialogCallback.Action.ADMIN_USER, String.valueOf(account.telegramId()))
@@ -113,14 +117,19 @@ class AdminDialog {
         String text = allowed.size() > ON_SCREEN
                 ? TelegramTexts.ADMIN_USERS + "\n\nПоказаны первые " + ON_SCREEN + " из " + allowed.size() + "."
                 : TelegramTexts.ADMIN_USERS;
-        return TelegramReply.withButtons(text, buttons);
+        return TelegramReply.screen(text, buttons);
     }
 
     /** Карточка человека: что с ним можно сделать. */
     TelegramReply userCard(long telegramId) {
+        return userCard(telegramId, null);
+    }
+
+    /** Та же карточка с припиской о том, что только что сделали. */
+    TelegramReply userCard(long telegramId, String note) {
         Optional<AccountAccess> account = access.find(telegramId);
         if (account.isEmpty()) {
-            return TelegramReply.withButtons(TelegramTexts.ADMIN_USER_GONE, List.of(backButton()));
+            return TelegramReply.screen(TelegramTexts.ADMIN_USER_GONE, List.of(backButton()));
         }
         AccountAccess user = account.get();
         String text = TelegramTexts.ADMIN_USER_CARD.formatted(user.name(), user.telegramId(),
@@ -138,7 +147,18 @@ class AdminDialog {
                     .button(TelegramTexts.BUTTON_ACCESS_ALLOW));
         }
         buttons.add(new DialogCallback(DialogCallback.Action.ADMIN_USERS).button(TelegramTexts.BUTTON_ADMIN_BACK));
-        return TelegramReply.withButtons(text, buttons);
+        return TelegramReply.screen(note == null ? text : note + "\n\n" + text, buttons);
+    }
+
+    /**
+     * У кого в базе только номер — просим приёмщика узнать имя в Telegram.
+     * Ответ придёт асинхронно, поэтому имена появятся при следующем открытии списка.
+     */
+    private void askForMissingNames(AccountAccess admin) {
+        List<Long> unnamed = access.withoutName(NAMES_PER_REQUEST);
+        if (!unnamed.isEmpty()) {
+            notifications.requestNames(admin.accountId(), unnamed);
+        }
     }
 
     private static ReplyButton backButton() {
@@ -190,7 +210,7 @@ class AdminDialog {
         return access.revoke(telegramId, admin.accountId())
                 .map(revoked -> {
                     notifications.notify(revoked.accountId(), telegramId, TelegramTexts.ACCESS_BLOCKED);
-                    return TelegramReply.of(TelegramTexts.ACCESS_DENIED_ADMIN.formatted(revoked.name()));
+                    return userCard(telegramId, TelegramTexts.ACCESS_DENIED_ADMIN.formatted(revoked.name()));
                 })
                 .orElseGet(() -> TelegramReply.of(TelegramTexts.ACCESS_UNKNOWN_USER));
     }
@@ -200,7 +220,7 @@ class AdminDialog {
                 .map(promoted -> {
                     notifications.notify(promoted.accountId(), telegramId,
                             TelegramTexts.ACCESS_GRANTED_BY.formatted(admin.name()));
-                    return TelegramReply.of(TelegramTexts.ACCESS_PROMOTED_ADMIN.formatted(promoted.name()));
+                    return userCard(telegramId, TelegramTexts.ACCESS_PROMOTED_ADMIN.formatted(promoted.name()));
                 })
                 .orElseGet(() -> TelegramReply.of(TelegramTexts.ACCESS_UNKNOWN_USER));
     }

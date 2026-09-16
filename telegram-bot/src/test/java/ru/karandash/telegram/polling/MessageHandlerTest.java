@@ -203,6 +203,41 @@ class MessageHandlerTest {
     }
 
     @Test
+    void menuScreenReplacesTheSameMessageInsteadOfSendingNewOne() throws Exception {
+        core.expect(requestTo(CORE_URL)).andRespond(withSuccess("""
+                {"duplicate":false,"messages":["Панель администратора. Заявок: 0, с доступом: 3."],
+                "buttons":[{"text":"Заявки (0)","data":"areqs:-"}],"replaceMessage":true}""",
+                MediaType.APPLICATION_JSON));
+
+        handler.handle(objectMapper.readValue("""
+                {"update_id":24,"callback_query":{"id":"cb-4","from":{"id":42,"is_bot":false},
+                "data":"apanel:-","message":{"message_id":60,"chat":{"id":42,"type":"private"}}}}""", Update.class));
+
+        assertThat(telegram.sentMessages).as("новых сообщений не появляется").isEmpty();
+        assertThat(telegram.editedMessages).singleElement().satisfies(edit -> {
+            assertThat(edit.path("message_id").asLong()).isEqualTo(60);
+            assertThat(edit.path("text").asText()).startsWith("Панель администратора.");
+            assertThat(edit.path("reply_markup").path("inline_keyboard").get(0).get(0).path("callback_data").asText())
+                    .isEqualTo("areqs:-");
+        });
+    }
+
+    @Test
+    void fallsBackToNewMessageWhenTelegramRefusesToEdit() throws Exception {
+        telegram.failMethod("editMessageText", 400, "Bad Request: message can't be edited");
+        core.expect(requestTo(CORE_URL)).andRespond(withSuccess("""
+                {"duplicate":false,"messages":["Панель администратора."],"buttons":[],"replaceMessage":true}""",
+                MediaType.APPLICATION_JSON));
+
+        handler.handle(objectMapper.readValue("""
+                {"update_id":25,"callback_query":{"id":"cb-5","from":{"id":42,"is_bot":false},
+                "data":"apanel:-","message":{"message_id":61,"chat":{"id":42,"type":"private"}}}}""", Update.class));
+
+        assertThat(telegram.sentMessages).singleElement()
+                .satisfies(sent -> assertThat(sent.path("text").asText()).isEqualTo("Панель администратора."));
+    }
+
+    @Test
     void answersButtonPressEvenWhenCoreIsDown() throws Exception {
         core.expect(requestTo(CORE_URL)).andRespond(withStatus(HttpStatus.BAD_GATEWAY));
 

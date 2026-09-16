@@ -1,6 +1,7 @@
 package ru.karandash.core.account;
 
 import org.springframework.stereotype.Service;
+import ru.karandash.contracts.telegram.TelegramUserName;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.util.List;
@@ -97,6 +98,26 @@ public class AccessService {
             account.setAccess(AccessState.ALLOWED);
             account.setDecidedBy(adminAccountId);
         });
+    }
+
+    /** Кого знаем только по номеру — у приёмщика можно спросить имя. */
+    @Transactional(readOnly = true)
+    public List<Long> withoutName(int limit) {
+        return accounts.findTelegramIdsWithoutName(limit);
+    }
+
+    /** Сохраняет имена, которые приёмщик узнал в Telegram. */
+    @Transactional
+    public int rename(List<TelegramUserName> names) {
+        int saved = 0;
+        for (TelegramUserName name : names) {
+            Optional<TelegramIdentityEntity> identity = identities.findById(name.telegramId());
+            if (identity.isPresent() && identity.get().rename(name.displayName(), name.username())) {
+                identities.saveAndFlush(identity.get());
+                saved++;
+            }
+        }
+        return saved;
     }
 
     /** Как зовут владельца аккаунта. */

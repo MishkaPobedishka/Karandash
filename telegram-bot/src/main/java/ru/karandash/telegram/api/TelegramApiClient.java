@@ -41,6 +41,11 @@ public class TelegramApiClient {
         ), objectMapper.getTypeFactory().constructCollectionType(List.class, Update.class));
     }
 
+    /** Кто это: имя и «собачка» человека, который писал боту. */
+    public Chat getChat(long chatId) {
+        return call("getChat", Map.of("chat_id", chatId), objectMapper.constructType(Chat.class));
+    }
+
     public TelegramFile getFile(String fileId) {
         return call("getFile", Map.of("file_id", fileId), objectMapper.constructType(TelegramFile.class));
     }
@@ -85,9 +90,7 @@ public class TelegramApiClient {
                 "link_preview_options", Map.of("is_disabled", true)
         ));
         if (buttons != null && !buttons.isEmpty()) {
-            body.put("reply_markup", Map.of("inline_keyboard", buttons.stream()
-                    .map(button -> List.of(Map.of("text", button.text(), "callback_data", button.data())))
-                    .toList()));
+            body.put("reply_markup", Map.of("inline_keyboard", keyboard(buttons)));
         }
         call("sendMessage", body, objectMapper.constructType(Object.class));
     }
@@ -96,6 +99,27 @@ public class TelegramApiClient {
     public void answerCallbackQuery(String callbackQueryId) {
         call("answerCallbackQuery", Map.of("callback_query_id", callbackQueryId),
                 objectMapper.constructType(Boolean.class));
+    }
+
+    /**
+     * Переписывает сообщение вместе с кнопками — так меню переключается на месте, а не плодит сообщения.
+     *
+     * @return {@code false}, если Telegram отказался и придётся отправить обычное сообщение
+     */
+    public boolean editMessage(long chatId, long messageId, String text, List<ReplyButton> buttons) {
+        Map<String, Object> body = new LinkedHashMap<>(Map.of(
+                "chat_id", chatId,
+                "message_id", messageId,
+                "text", text.length() <= MESSAGE_LIMIT ? text : text.substring(0, MESSAGE_LIMIT),
+                "link_preview_options", Map.of("is_disabled", true),
+                "reply_markup", Map.of("inline_keyboard", keyboard(buttons))));
+        try {
+            call("editMessageText", body, objectMapper.constructType(Object.class));
+            return true;
+        } catch (TelegramApiException exception) {
+            // «message is not modified» — экран уже такой, это не ошибка.
+            return exception.getMessage() != null && exception.getMessage().contains("not modified");
+        }
     }
 
     /** Снимает кнопки у сообщения, чтобы на ту же оценку нельзя было нажать второй раз. */
@@ -109,6 +133,13 @@ public class TelegramApiClient {
 
     public void sendChatAction(long chatId, String action) {
         call("sendChatAction", Map.of("chat_id", chatId, "action", action), objectMapper.constructType(Boolean.class));
+    }
+
+    /** Каждая кнопка — своей строкой: подписи длинные, в ряд на телефоне не помещаются. */
+    private static List<List<Map<String, String>>> keyboard(List<ReplyButton> buttons) {
+        return buttons == null ? List.of() : buttons.stream()
+                .map(button -> List.of(Map.of("text", button.text(), "callback_data", button.data())))
+                .toList();
     }
 
     private <T> T call(String method, Object body, JavaType resultType) {

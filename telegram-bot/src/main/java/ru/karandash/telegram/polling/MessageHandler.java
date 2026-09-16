@@ -124,9 +124,6 @@ public class MessageHandler {
         }
         // Часы на кнопке гасим сразу: ответ ядра вместе с моделью занимает секунды.
         answerQuietly(callback.id());
-        if (callback.message() != null) {
-            clearButtonsQuietly(chatId, callback.message().messageId());
-        }
         ScheduledFuture<?> typing = startTyping(chatId);
         TelegramReply reply;
         try {
@@ -142,6 +139,16 @@ public class MessageHandler {
         if (reply.duplicate()) {
             log.info("Апдейт {} уже обработан ядром — повторный ответ не отправляется", update.updateId());
             return;
+        }
+        Long messageId = callback.message() == null ? null : callback.message().messageId();
+        if (reply.replaceMessage() && messageId != null && reply.messages().size() == 1
+                && telegram.editMessage(chatId, messageId, reply.messages().getFirst(), reply.buttons())) {
+            log.info("Апдейт {} обработан: экран заменён на месте", update.updateId());
+            return;
+        }
+        if (messageId != null) {
+            // Кнопки прошлого сообщения больше не нужны: ответ уходит новым сообщением.
+            clearButtonsQuietly(chatId, messageId);
         }
         send(chatId, reply);
         log.info("Апдейт {} обработан: кнопка ({} сообщ.)", update.updateId(), reply.messages().size());

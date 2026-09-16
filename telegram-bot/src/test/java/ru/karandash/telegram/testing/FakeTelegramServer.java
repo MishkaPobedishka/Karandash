@@ -34,6 +34,8 @@ public final class FakeTelegramServer implements AutoCloseable {
     public final List<JsonNode> chatActions = new CopyOnWriteArrayList<>();
     public final List<JsonNode> answeredCallbacks = new CopyOnWriteArrayList<>();
     public final List<JsonNode> editedMarkups = new CopyOnWriteArrayList<>();
+    public final List<JsonNode> editedMessages = new CopyOnWriteArrayList<>();
+    public final Map<Long, String> chats = new ConcurrentHashMap<>();
     public final List<String> requestPaths = new CopyOnWriteArrayList<>();
 
     public FakeTelegramServer() throws IOException {
@@ -119,6 +121,18 @@ public final class FakeTelegramServer implements AutoCloseable {
             case "answerCallbackQuery" -> {
                 answeredCallbacks.add(request);
                 respond(exchange, 200, "{\"ok\":true,\"result\":true}");
+            }
+            case "editMessageText" -> {
+                editedMessages.add(request);
+                respond(exchange, 200, "{\"ok\":true,\"result\":{\"message_id\":1}}");
+            }
+            case "getChat" -> {
+                String chat = chats.get(request.path("chat_id").asLong());
+                if (chat == null) {
+                    respond(exchange, 400, "{\"ok\":false,\"error_code\":400,\"description\":\"Bad Request: chat not found\"}");
+                } else {
+                    respond(exchange, 200, "{\"ok\":true,\"result\":" + chat + "}");
+                }
             }
             case "editMessageReplyMarkup" -> {
                 editedMarkups.add(request);

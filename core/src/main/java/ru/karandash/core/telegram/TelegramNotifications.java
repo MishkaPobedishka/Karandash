@@ -4,6 +4,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import ru.karandash.contracts.telegram.BotNotification;
 import ru.karandash.contracts.telegram.ReplyButton;
+import ru.karandash.contracts.telegram.TelegramNameRequest;
 import ru.karandash.core.outbox.OutboxService;
 
 import java.util.List;
@@ -25,6 +26,13 @@ public class TelegramNotifications {
     @Transactional
     public UUID notify(UUID accountId, long chatId, String text) {
         return notify(accountId, chatId, text, List.of());
+    }
+
+    /** Просьба к приёмщику узнать в Telegram, как зовут этих людей: у ядра доступа к Telegram нет. */
+    @Transactional
+    public UUID requestNames(UUID accountId, List<Long> telegramIds) {
+        return outboxService.append("account", accountId, TelegramNameRequest.EVENT_TYPE,
+                new TelegramNameRequest(telegramIds));
     }
 
     @Transactional

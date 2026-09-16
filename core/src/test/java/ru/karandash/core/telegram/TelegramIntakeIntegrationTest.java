@@ -14,6 +14,7 @@ import org.springframework.boot.testcontainers.service.connection.ServiceConnect
 import org.springframework.core.io.ByteArrayResource;
 import org.springframework.http.HttpEntity;
 import org.springframework.http.HttpHeaders;
+import org.springframework.http.HttpMethod;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
@@ -33,6 +34,7 @@ import ru.karandash.contracts.telegram.BotNotification;
 import ru.karandash.contracts.telegram.ReplyButton;
 import ru.karandash.contracts.telegram.TelegramInboundMessage;
 import ru.karandash.contracts.telegram.TelegramReply;
+import ru.karandash.contracts.telegram.TelegramUserName;
 import ru.karandash.core.ai.ModelRecognition;
 import ru.karandash.core.ai.ModelUnavailableException;
 import ru.karandash.core.ai.RecognitionModel;
@@ -194,7 +196,8 @@ class TelegramIntakeIntegrationTest {
         assertThat(panel.messages()).singleElement().asString().startsWith("Панель администратора.");
         assertThat(panel.buttons()).extracting(ReplyButton::data)
                 .containsExactly("areqs:-", "ausers:-", "aclog:-");
-        assertThat(users.buttons()).extracting(ReplyButton::data).contains("auser:" + user, "apanel:-");
+        assertThat(users.replaceMessage()).as("список переключается в том же сообщении").isTrue();
+        assertThat(users.buttons()).extracting(ReplyButton::data).contains("apanel:-");
         assertThat(card.messages()).singleElement().asString()
                 .contains("Номер: " + user)
                 .contains("Доступ: открыт")
@@ -457,11 +460,36 @@ class TelegramIntakeIntegrationTest {
         send(TelegramInboundMessage.message(nextUpdateId(), telegramId, "Иван Петров", "vanya", "/start"), null);
         // Нажатие кнопки Telegram присылает без имени — известное имя от этого теряться не должно.
         send(TelegramInboundMessage.button(nextUpdateId(), telegramId, "areq:-"), null);
-        TelegramReply users = send(TelegramInboundMessage.message(nextUpdateId(), ADMIN, "/users"), null);
+        TelegramReply requests = send(TelegramInboundMessage.button(nextUpdateId(), ADMIN, "areqs:-"), null);
 
-        assertThat(users.messages()).singleElement().asString().contains("Иван Петров (@vanya) — 700023");
+        assertThat(requests.messages()).singleElement().asString().contains("Иван Петров (@vanya) — 700023");
+        assertThat(requests.buttons()).extracting(ReplyButton::text).contains("✓ Иван Петров (@vanya)");
         assertThat(jdbc.queryForObject("select display_name from telegram_identity where telegram_id = ?",
                 String.class, telegramId)).isEqualTo("Иван Петров");
+    }
+
+    @Test
+    void asksReceiverForNamesOfUsersKnownOnlyByNumber() {
+        long nameless = 700_025;
+        allow(nameless);
+
+        TelegramReply list = send(TelegramInboundMessage.button(nextUpdateId(), ADMIN, "ausers:-"), null);
+
+        assertThat(list.replaceMessage()).as("экран меню переключается на месте").isTrue();
+        assertThat(list.buttons()).extracting(ReplyButton::text).contains(String.valueOf(nameless));
+        assertThat(jdbc.queryForList("""
+                select payload ->> 'telegramIds' from outbox_event where event_type = 'telegram.resolve-names'
+                order by created_at desc limit 1""", String.class))
+                .singleElement().asString().contains(String.valueOf(nameless));
+
+        // Приёмщик узнал имя в Telegram и вернул его — в списке появляется человек, а не номер.
+        ResponseEntity<String> stored = rest.exchange("/internal/telegram/names", HttpMethod.POST,
+                new HttpEntity<>(List.of(new TelegramUserName(nameless, "Пётр Сидоров", "petya")), jsonHeaders()),
+                String.class);
+        TelegramReply afterNames = send(TelegramInboundMessage.button(nextUpdateId(), ADMIN, "ausers:-"), null);
+
+        assertThat(stored.getStatusCode()).isEqualTo(HttpStatus.OK);
+        assertThat(afterNames.buttons()).extracting(ReplyButton::text).contains("Пётр Сидоров (@petya)");
     }
 
     @Test
@@ -569,6 +597,13 @@ class TelegramIntakeIntegrationTest {
                 new HttpEntity<>(parts(message, photo), headers), TelegramReply.class);
         assertThat(response.getStatusCode()).isEqualTo(HttpStatus.OK);
         return response.getBody();
+    }
+
+    private static HttpHeaders jsonHeaders() {
+        HttpHeaders headers = new HttpHeaders();
+        headers.setBearerAuth(TOKEN);
+        headers.setContentType(MediaType.APPLICATION_JSON);
+        return headers;
     }
 
     private static MultiValueMap<String, Object> parts(TelegramInboundMessage message, byte[] photo) {

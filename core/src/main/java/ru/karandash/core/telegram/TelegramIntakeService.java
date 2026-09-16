@@ -9,6 +9,8 @@ import ru.karandash.contracts.ai.RecognitionContract;
 import ru.karandash.contracts.ai.RecognitionResult;
 import ru.karandash.contracts.telegram.TelegramInboundMessage;
 import ru.karandash.contracts.telegram.TelegramReply;
+import ru.karandash.contracts.telegram.TelegramUserName;
+import ru.karandash.core.account.AccessService;
 import ru.karandash.core.account.AccessState;
 import ru.karandash.core.account.AccountAccess;
 import ru.karandash.core.account.TelegramAccountService;
@@ -52,6 +54,7 @@ public class TelegramIntakeService {
     private final DiaryReplyFormatter diaryFormatter;
     private final ProfileDialog profileDialog;
     private final AdminDialog adminDialog;
+    private final AccessService access;
     private final MealDraftService drafts;
     private final DiaryService diary;
     private final ProfileService profiles;
@@ -67,6 +70,7 @@ public class TelegramIntakeService {
             DiaryReplyFormatter diaryFormatter,
             ProfileDialog profileDialog,
             AdminDialog adminDialog,
+            AccessService access,
             MealDraftService drafts,
             DiaryService diary,
             ProfileService profiles,
@@ -81,6 +85,7 @@ public class TelegramIntakeService {
         this.diaryFormatter = diaryFormatter;
         this.profileDialog = profileDialog;
         this.adminDialog = adminDialog;
+        this.access = access;
         this.drafts = drafts;
         this.diary = diary;
         this.profiles = profiles;
@@ -111,6 +116,16 @@ public class TelegramIntakeService {
             updates.deleteById(message.updateId());
             throw exception;
         }
+    }
+
+    /** Имена, которые приёмщик узнал в Telegram: администратор должен видеть людей, а не номера. */
+    public int rememberNames(List<TelegramUserName> names) {
+        if (names == null || names.isEmpty()) {
+            return 0;
+        }
+        int saved = access.rename(names);
+        log.info("Имена пользователей обновлены: {} из {}", saved, names.size());
+        return saved;
     }
 
     /** Бот в бета-тесте: без доступа работает только заявка. */
@@ -180,7 +195,7 @@ public class TelegramIntakeService {
             case "/profile", "/профиль" -> profile(account.accountId());
             case "/changelog" -> changelog(account, argument);
             case "/admin" -> adminOnly(account, adminDialog::panel);
-            case "/users" -> account.admin() ? adminDialog.users() : TelegramReply.of(TelegramTexts.ADMIN_ONLY);
+            case "/users" -> adminOnly(account, () -> adminDialog.userList(account));
             case "/grant" -> adminAction(account, command, argument,
                     telegramId -> adminDialog.grant(account, telegramId));
             case "/revoke" -> adminAction(account, command, argument,
@@ -232,8 +247,8 @@ public class TelegramIntakeService {
                 yield TelegramReply.of(TelegramTexts.PROFILE_CANCELLED);
             }
             case ADMIN_PANEL -> adminOnly(account, adminDialog::panel);
-            case ADMIN_REQUESTS -> adminOnly(account, adminDialog::requests);
-            case ADMIN_USERS -> adminOnly(account, adminDialog::userList);
+            case ADMIN_REQUESTS -> adminOnly(account, () -> adminDialog.requests(account));
+            case ADMIN_USERS -> adminOnly(account, () -> adminDialog.userList(account));
             case ADMIN_CHANGELOG -> adminOnly(account, () -> adminDialog.changelog(true));
             case ADMIN_USER -> adminOnly(account, callback, adminDialog::userCard);
             case ACCESS_GRANT, ACCESS_DENY -> accessButton(account, callback);
