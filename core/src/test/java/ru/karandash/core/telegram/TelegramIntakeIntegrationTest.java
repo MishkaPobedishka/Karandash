@@ -181,6 +181,37 @@ class TelegramIntakeIntegrationTest {
     }
 
     @Test
+    void adminPanelOpensSectionsAndGivesRightsByButtons() {
+        long user = 700_024;
+        allow(user);
+
+        TelegramReply panel = send(TelegramInboundMessage.message(nextUpdateId(), ADMIN, "/admin"), null);
+        TelegramReply users = send(TelegramInboundMessage.button(nextUpdateId(), ADMIN, "ausers:-"), null);
+        TelegramReply card = send(TelegramInboundMessage.button(nextUpdateId(), ADMIN, "auser:" + user), null);
+        TelegramReply promoted = send(TelegramInboundMessage.button(nextUpdateId(), ADMIN, "apromote:" + user), null);
+        TelegramReply cardAfter = send(TelegramInboundMessage.button(nextUpdateId(), ADMIN, "auser:" + user), null);
+
+        assertThat(panel.messages()).singleElement().asString().startsWith("Панель администратора.");
+        assertThat(panel.buttons()).extracting(ReplyButton::data)
+                .containsExactly("areqs:-", "ausers:-", "aclog:-");
+        assertThat(users.buttons()).extracting(ReplyButton::data).contains("auser:" + user, "apanel:-");
+        assertThat(card.messages()).singleElement().asString()
+                .contains("Номер: " + user)
+                .contains("Доступ: открыт")
+                .contains("Роль: пользователь");
+        assertThat(card.buttons()).extracting(ReplyButton::text)
+                .containsExactly("✗ Забрать доступ", "★ Сделать администратором", "← Назад");
+        assertThat(promoted.messages()).singleElement().asString().startsWith("Теперь администратор");
+        // Администратору администраторство второй раз не предлагаем.
+        assertThat(cardAfter.messages()).singleElement().asString().contains("Роль: администратор");
+        assertThat(cardAfter.buttons()).extracting(ReplyButton::text)
+                .containsExactly("✗ Забрать доступ", "← Назад");
+        assertThat(jdbc.queryForObject("""
+                select a.role from account a join telegram_identity t on t.account_id = a.id
+                where t.telegram_id = ?""", String.class, user)).isEqualTo("ADMIN");
+    }
+
+    @Test
     void onlyAdminRunsAdminCommands() {
         long user = 700_022;
         allow(user);

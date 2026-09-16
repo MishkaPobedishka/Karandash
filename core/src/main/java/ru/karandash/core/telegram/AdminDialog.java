@@ -1,6 +1,7 @@
 package ru.karandash.core.telegram;
 
 import org.springframework.stereotype.Component;
+import ru.karandash.contracts.telegram.ReplyButton;
 import ru.karandash.contracts.telegram.TelegramReply;
 import ru.karandash.core.account.AccessDecision;
 import ru.karandash.core.account.AccessService;
@@ -8,6 +9,7 @@ import ru.karandash.core.account.AccountAccess;
 import ru.karandash.core.changelog.ChangelogEntity;
 import ru.karandash.core.changelog.ChangelogService;
 
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
@@ -21,6 +23,8 @@ import java.util.UUID;
 class AdminDialog {
 
     private static final int PUBLISHED_TO_SHOW = 5;
+    /** Сколько людей показываем кнопками за раз: длинная клавиатура в Telegram неудобна. */
+    private static final int ON_SCREEN = 5;
 
     private final AccessService access;
     private final ChangelogService changelog;
@@ -36,7 +40,7 @@ class AdminDialog {
     TelegramReply request(AccountAccess applicant) {
         access.request(applicant.telegramId());
         String text = TelegramTexts.ACCESS_REQUEST.formatted(applicant.name(), applicant.telegramId());
-        List<ru.karandash.contracts.telegram.ReplyButton> buttons = List.of(
+        List<ReplyButton> buttons = List.of(
                 new DialogCallback(DialogCallback.Action.ACCESS_GRANT, String.valueOf(applicant.telegramId()))
                         .button(TelegramTexts.BUTTON_ACCESS_GRANT),
                 new DialogCallback(DialogCallback.Action.ACCESS_DENY, String.valueOf(applicant.telegramId()))
@@ -61,6 +65,93 @@ class AdminDialog {
         return TelegramReply.of(allow
                 ? TelegramTexts.ACCESS_DECIDED_ALLOWED.formatted(result.account().name())
                 : TelegramTexts.ACCESS_DECIDED_BLOCKED.formatted(result.account().name()));
+    }
+
+    /** Главный экран панели: сколько заявок, сколько людей, и кнопки в разделы. */
+    TelegramReply panel() {
+        int waiting = access.waiting().size();
+        int allowed = access.allowed().size();
+        return TelegramReply.withButtons(TelegramTexts.ADMIN_PANEL.formatted(waiting, allowed), List.of(
+                new DialogCallback(DialogCallback.Action.ADMIN_REQUESTS)
+                        .button(TelegramTexts.BUTTON_ADMIN_REQUESTS.formatted(waiting)),
+                new DialogCallback(DialogCallback.Action.ADMIN_USERS)
+                        .button(TelegramTexts.BUTTON_ADMIN_USERS.formatted(allowed)),
+                new DialogCallback(DialogCallback.Action.ADMIN_CHANGELOG)
+                        .button(TelegramTexts.BUTTON_ADMIN_CHANGELOG)));
+    }
+
+    /** Заявки: на каждого по две кнопки — открыть доступ или отказать. */
+    TelegramReply requests() {
+        List<AccountAccess> waiting = access.waiting();
+        if (waiting.isEmpty()) {
+            return TelegramReply.withButtons(TelegramTexts.ADMIN_NO_REQUESTS, List.of(backButton()));
+        }
+        StringBuilder text = new StringBuilder(TelegramTexts.ADMIN_REQUESTS);
+        List<ReplyButton> buttons = new ArrayList<>();
+        waiting.stream().limit(ON_SCREEN).forEach(applicant -> {
+            text.append("\n• ").append(applicant.name()).append(" — ").append(applicant.telegramId());
+            buttons.add(new DialogCallback(DialogCallback.Action.ACCESS_GRANT, String.valueOf(applicant.telegramId()))
+                    .button("✓ " + applicant.name()));
+            buttons.add(new DialogCallback(DialogCallback.Action.ACCESS_DENY, String.valueOf(applicant.telegramId()))
+                    .button("✗ " + applicant.name()));
+        });
+        if (waiting.size() > ON_SCREEN) {
+            text.append("\n\nПоказаны первые ").append(ON_SCREEN).append(" из ").append(waiting.size()).append('.');
+        }
+        buttons.add(backButton());
+        return TelegramReply.withButtons(text.toString(), buttons);
+    }
+
+    /** Список людей с доступом: нажатие открывает карточку. */
+    TelegramReply userList() {
+        List<AccountAccess> allowed = access.allowed();
+        List<ReplyButton> buttons = new ArrayList<>();
+        allowed.stream().limit(ON_SCREEN).forEach(account -> buttons.add(
+                new DialogCallback(DialogCallback.Action.ADMIN_USER, String.valueOf(account.telegramId()))
+                        .button(account.name() + (account.admin() ? " ★" : ""))));
+        buttons.add(backButton());
+        String text = allowed.size() > ON_SCREEN
+                ? TelegramTexts.ADMIN_USERS + "\n\nПоказаны первые " + ON_SCREEN + " из " + allowed.size() + "."
+                : TelegramTexts.ADMIN_USERS;
+        return TelegramReply.withButtons(text, buttons);
+    }
+
+    /** Карточка человека: что с ним можно сделать. */
+    TelegramReply userCard(long telegramId) {
+        Optional<AccountAccess> account = access.find(telegramId);
+        if (account.isEmpty()) {
+            return TelegramReply.withButtons(TelegramTexts.ADMIN_USER_GONE, List.of(backButton()));
+        }
+        AccountAccess user = account.get();
+        String text = TelegramTexts.ADMIN_USER_CARD.formatted(user.name(), user.telegramId(),
+                accessName(user), user.admin() ? "администратор" : "пользователь");
+        List<ReplyButton> buttons = new ArrayList<>();
+        if (user.allowed()) {
+            buttons.add(new DialogCallback(DialogCallback.Action.ACCESS_REVOKE, String.valueOf(telegramId))
+                    .button(TelegramTexts.BUTTON_ACCESS_REVOKE));
+            if (!user.admin()) {
+                buttons.add(new DialogCallback(DialogCallback.Action.ACCESS_PROMOTE, String.valueOf(telegramId))
+                        .button(TelegramTexts.BUTTON_ACCESS_PROMOTE));
+            }
+        } else {
+            buttons.add(new DialogCallback(DialogCallback.Action.ACCESS_GRANT, String.valueOf(telegramId))
+                    .button(TelegramTexts.BUTTON_ACCESS_ALLOW));
+        }
+        buttons.add(new DialogCallback(DialogCallback.Action.ADMIN_USERS).button(TelegramTexts.BUTTON_ADMIN_BACK));
+        return TelegramReply.withButtons(text, buttons);
+    }
+
+    private static ReplyButton backButton() {
+        return new DialogCallback(DialogCallback.Action.ADMIN_PANEL).button(TelegramTexts.BUTTON_ADMIN_BACK);
+    }
+
+    private static String accessName(AccountAccess account) {
+        return switch (account.access()) {
+            case ALLOWED -> "открыт";
+            case REQUESTED -> "ждёт решения";
+            case BLOCKED -> "закрыт";
+            case PENDING -> "заявку не подавал";
+        };
     }
 
     TelegramReply users() {

@@ -122,7 +122,7 @@ final class TelegramTexts {
     static final String ADMIN_ONLY = "Эта команда только для администратора.";
 
     static final String ADMIN_HELP = """
-            Команды администратора:
+            Панель администратора — кнопки ниже. То же самое командами:
 
             /users — кто ждёт доступа и у кого он есть
             /grant НОМЕР — выдать доступ
@@ -131,6 +131,41 @@ final class TelegramTexts {
             /changelog ТЕКСТ — написать «что нового»: первая строка — заголовок, дальше текст. Рассылка — кнопкой.""";
 
     static final String ADMIN_NEED_NUMBER = "Нужен номер пользователя: %s 123456789";
+
+    static final String ADMIN_HINT = """
+
+
+            /admin — панель администратора.""";
+
+    static final String ADMIN_PANEL = "Панель администратора. Заявок: %d, с доступом: %d.";
+
+    static final String ADMIN_NO_REQUESTS = "Заявок нет.";
+
+    static final String ADMIN_REQUESTS = "Ждут решения:";
+
+    static final String ADMIN_USERS = "Кому открыт бот — нажмите на человека, чтобы решить его судьбу:";
+
+    static final String ADMIN_USER_CARD = """
+            %s
+            Номер: %d
+            Доступ: %s
+            Роль: %s""";
+
+    static final String ADMIN_USER_GONE = "Этого пользователя больше нет.";
+
+    static final String BUTTON_ADMIN_REQUESTS = "Заявки (%d)";
+
+    static final String BUTTON_ADMIN_USERS = "Пользователи (%d)";
+
+    static final String BUTTON_ADMIN_CHANGELOG = "Что нового";
+
+    static final String BUTTON_ADMIN_BACK = "← Назад";
+
+    static final String BUTTON_ACCESS_REVOKE = "✗ Забрать доступ";
+
+    static final String BUTTON_ACCESS_PROMOTE = "★ Сделать администратором";
+
+    static final String BUTTON_ACCESS_ALLOW = "✓ Открыть доступ";
 
     // Телосложение
 

@@ -31,9 +31,17 @@ record DialogCallback(Action action, String payload) {
         PROFILE_ACTIVITY("pact"),
         PROFILE_GOAL("pgoal"),
         PROFILE_CANCEL("pstop"),
+        /** Панель администратора и её разделы. */
+        ADMIN_PANEL("apanel"),
+        ADMIN_REQUESTS("areqs"),
+        ADMIN_USERS("ausers"),
+        ADMIN_USER("auser"),
+        ADMIN_CHANGELOG("aclog"),
         /** Администратор открывает доступ пользователю. */
         ACCESS_GRANT("agrant"),
         ACCESS_DENY("adeny"),
+        ACCESS_REVOKE("arevoke"),
+        ACCESS_PROMOTE("apromote"),
         /** Администратор рассылает или удаляет запись «что нового». */
         CHANGELOG_SEND("clsend"),
         CHANGELOG_DROP("cldrop");

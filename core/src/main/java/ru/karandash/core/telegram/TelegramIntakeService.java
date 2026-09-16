@@ -171,17 +171,15 @@ public class TelegramIntakeService {
         }
         String argument = parts.length > 1 ? parts[1].strip() : "";
         return switch (command) {
-            case "/start" -> TelegramReply.of(TelegramTexts.GREETING);
-            case "/help" -> TelegramReply.of(TelegramTexts.HELP);
+            case "/start" -> TelegramReply.of(withAdminHint(account, TelegramTexts.GREETING));
+            case "/help" -> TelegramReply.of(withAdminHint(account, TelegramTexts.HELP));
             case "/id", "/whoami" -> TelegramReply.of(
                     TelegramTexts.ACCESS_MY_NUMBER.formatted(account.telegramId()));
             case "/diary", "/дневник" -> TelegramReply.of(diaryFormatter.day(
                     diary.today(account.accountId()), profiles.dailyTarget(account.accountId())));
             case "/profile", "/профиль" -> profile(account.accountId());
             case "/changelog" -> changelog(account, argument);
-            case "/admin" -> account.admin()
-                    ? TelegramReply.of(TelegramTexts.ADMIN_HELP)
-                    : TelegramReply.of(TelegramTexts.ADMIN_ONLY);
+            case "/admin" -> adminOnly(account, adminDialog::panel);
             case "/users" -> account.admin() ? adminDialog.users() : TelegramReply.of(TelegramTexts.ADMIN_ONLY);
             case "/grant" -> adminAction(account, command, argument,
                     telegramId -> adminDialog.grant(account, telegramId));
@@ -233,7 +231,16 @@ public class TelegramIntakeService {
                 profiles.cancelSetup(account.accountId());
                 yield TelegramReply.of(TelegramTexts.PROFILE_CANCELLED);
             }
+            case ADMIN_PANEL -> adminOnly(account, adminDialog::panel);
+            case ADMIN_REQUESTS -> adminOnly(account, adminDialog::requests);
+            case ADMIN_USERS -> adminOnly(account, adminDialog::userList);
+            case ADMIN_CHANGELOG -> adminOnly(account, () -> adminDialog.changelog(true));
+            case ADMIN_USER -> adminOnly(account, callback, adminDialog::userCard);
             case ACCESS_GRANT, ACCESS_DENY -> accessButton(account, callback);
+            case ACCESS_REVOKE -> adminOnly(account, callback,
+                    telegramId -> adminDialog.revoke(account, telegramId));
+            case ACCESS_PROMOTE -> adminOnly(account, callback,
+                    telegramId -> adminDialog.promote(account, telegramId));
             case CHANGELOG_SEND -> changelogButton(account, callback, true);
             case CHANGELOG_DROP -> changelogButton(account, callback, false);
         };
@@ -252,6 +259,28 @@ public class TelegramIntakeService {
             }
             default -> revise(accountId, draft.get(), RecognitionContract.NO_DETAILS_COMMENT);
         };
+    }
+
+    /** Администратору напоминаем про панель — остальным про неё знать незачем. */
+    private static String withAdminHint(AccountAccess account, String text) {
+        return account.admin() ? text + TelegramTexts.ADMIN_HINT : text;
+    }
+
+    private TelegramReply adminOnly(AccountAccess account, Supplier<TelegramReply> action) {
+        return account.admin() ? action.get() : TelegramReply.of(TelegramTexts.ADMIN_ONLY);
+    }
+
+    private TelegramReply adminOnly(
+            AccountAccess account,
+            DialogCallback callback,
+            Function<Long, TelegramReply> action
+    ) {
+        if (!account.admin()) {
+            return TelegramReply.of(TelegramTexts.ADMIN_ONLY);
+        }
+        return callback.numberPayload()
+                .map(action)
+                .orElseGet(() -> TelegramReply.of(TelegramTexts.ACCESS_UNKNOWN_USER));
     }
 
     private TelegramReply accessButton(AccountAccess account, DialogCallback callback) {
