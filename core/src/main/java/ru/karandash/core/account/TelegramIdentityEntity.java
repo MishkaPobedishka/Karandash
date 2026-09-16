@@ -46,15 +46,23 @@ public class TelegramIdentityEntity {
         return username;
     }
 
-    /** Имя меняется на стороне Telegram — обновляем, когда человек пишет боту. */
+    /**
+     * Имя меняется на стороне Telegram — обновляем, когда человек пишет боту.
+     * Пустое значение не затирает известное: в части событий Telegram имени не присылает.
+     */
     boolean rename(String displayName, String username) {
-        boolean changed = !Objects.equals(this.displayName, displayName)
-                || !Objects.equals(this.username, username);
+        String name = blank(displayName) ? this.displayName : displayName;
+        String handle = blank(username) ? this.username : username;
+        boolean changed = !Objects.equals(this.displayName, name) || !Objects.equals(this.username, handle);
         if (changed) {
-            this.displayName = displayName;
-            this.username = username;
+            this.displayName = name;
+            this.username = handle;
         }
         return changed;
+    }
+
+    private static boolean blank(String value) {
+        return value == null || value.isBlank();
     }
 
     /** Как называть человека в сообщениях: имя, «собачка» или номер. */

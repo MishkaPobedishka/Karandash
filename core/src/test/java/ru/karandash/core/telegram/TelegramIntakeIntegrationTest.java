@@ -420,6 +420,20 @@ class TelegramIntakeIntegrationTest {
     }
 
     @Test
+    void nameFromTelegramSurvivesEventsWithoutIt() {
+        long telegramId = 700_023;
+
+        send(TelegramInboundMessage.message(nextUpdateId(), telegramId, "Иван Петров", "vanya", "/start"), null);
+        // Нажатие кнопки Telegram присылает без имени — известное имя от этого теряться не должно.
+        send(TelegramInboundMessage.button(nextUpdateId(), telegramId, "areq:-"), null);
+        TelegramReply users = send(TelegramInboundMessage.message(nextUpdateId(), ADMIN, "/users"), null);
+
+        assertThat(users.messages()).singleElement().asString().contains("Иван Петров (@vanya) — 700023");
+        assertThat(jdbc.queryForObject("select display_name from telegram_identity where telegram_id = ?",
+                String.class, telegramId)).isEqualTo("Иван Петров");
+    }
+
+    @Test
     void profileWizardCountsDailyNormAndDiaryShowsWhatIsLeft() {
         long telegramId = 700_030;
         allow(telegramId);
