@@ -7,10 +7,14 @@ import java.util.Optional;
 import java.util.UUID;
 
 /**
- * Данные кнопки под оценкой. В Telegram уходит только действие и идентификатор черновика —
- * ни текста пользователя, ни чисел оценки там нет, а сам черновик всё равно ищется по аккаунту.
+ * Данные кнопки. В Telegram уходит только код действия и короткая нагрузка — идентификатор черновика,
+ * номер пользователя или выбранный вариант. Ни текста пользователя, ни чисел оценки там нет,
+ * а всё, что нагрузка называет, всё равно проверяется по аккаунту нажавшего.
  */
-record DialogCallback(Action action, UUID draftId) {
+record DialogCallback(Action action, String payload) {
+
+    /** Нагрузки нет, но формат «код:значение» одинаков для всех кнопок. */
+    private static final String NO_PAYLOAD = "-";
 
     enum Action {
         /** Записать оценку в дневник. */
@@ -18,7 +22,21 @@ record DialogCallback(Action action, UUID draftId) {
         /** Забыть оценку. */
         DROP("drop"),
         /** Уточнить нечем — пусть модель прикинет по типичному варианту. */
-        AS_IS("asis");
+        AS_IS("asis"),
+        /** Пользователь просит доступ к боту. */
+        REQUEST_ACCESS("areq"),
+        /** Начать разговор о телосложении. */
+        PROFILE_START("pnew"),
+        PROFILE_SEX("psex"),
+        PROFILE_ACTIVITY("pact"),
+        PROFILE_GOAL("pgoal"),
+        PROFILE_CANCEL("pstop"),
+        /** Администратор открывает доступ пользователю. */
+        ACCESS_GRANT("agrant"),
+        ACCESS_DENY("adeny"),
+        /** Администратор рассылает или удаляет запись «что нового». */
+        CHANGELOG_SEND("clsend"),
+        CHANGELOG_DROP("cldrop");
 
         private final String code;
 
@@ -40,8 +58,16 @@ record DialogCallback(Action action, UUID draftId) {
         }
     }
 
+    DialogCallback(Action action, UUID payload) {
+        this(action, payload.toString());
+    }
+
+    DialogCallback(Action action) {
+        this(action, NO_PAYLOAD);
+    }
+
     String data() {
-        String data = action.code() + ":" + draftId;
+        String data = action.code() + ":" + payload;
         if (data.getBytes(StandardCharsets.UTF_8).length > ReplyButton.MAX_DATA_BYTES) {
             throw new IllegalStateException("Данные кнопки не помещаются в ограничение Telegram");
         }
@@ -52,22 +78,35 @@ record DialogCallback(Action action, UUID draftId) {
         return new ReplyButton(text, data());
     }
 
+    Optional<UUID> uuidPayload() {
+        try {
+            return Optional.of(UUID.fromString(payload));
+        } catch (IllegalArgumentException exception) {
+            return Optional.empty();
+        }
+    }
+
+    Optional<Long> numberPayload() {
+        try {
+            return Optional.of(Long.parseLong(payload));
+        } catch (NumberFormatException exception) {
+            return Optional.empty();
+        }
+    }
+
     static Optional<DialogCallback> parse(String data) {
         if (data == null) {
             return Optional.empty();
         }
         int separator = data.indexOf(':');
-        if (separator <= 0) {
+        if (separator <= 0 || separator == data.length() - 1) {
             return Optional.empty();
         }
-        Optional<Action> action = Action.byCode(data.substring(0, separator));
-        if (action.isEmpty()) {
+        String payload = data.substring(separator + 1);
+        if (payload.length() > 40 || payload.chars().anyMatch(Character::isWhitespace)) {
             return Optional.empty();
         }
-        try {
-            return Optional.of(new DialogCallback(action.get(), UUID.fromString(data.substring(separator + 1))));
-        } catch (IllegalArgumentException exception) {
-            return Optional.empty();
-        }
+        return Action.byCode(data.substring(0, separator))
+                .map(action -> new DialogCallback(action, payload));
     }
 }

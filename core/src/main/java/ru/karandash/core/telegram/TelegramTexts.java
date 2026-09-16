@@ -12,7 +12,8 @@ final class TelegramTexts {
             Верну состав с диапазонами калорий и БЖУ и спрошу, записать ли это в дневник. \
             Если оценка мимо — просто напишите, что не так, и я пересчитаю.
 
-            Дневник за сегодня — команда /diary.""";
+            /profile — рост, вес, возраст и цель: посчитаю вашу норму калорий.
+            /diary — что уже съедено сегодня.""";
 
     static final String HELP = """
             Пришлите фото еды или опишите её словами — верну оценку калорий и БЖУ диапазонами \
@@ -21,7 +22,10 @@ final class TelegramTexts {
             Пока оценка не закрыта, ваше сообщение я понимаю как уточнение к ней и считаю заново. \
             Чтобы начать с другой еды — нажмите «Не записывать» или пришлите новое фото.
 
-            /diary — что уже записано за сегодня.""";
+            /profile — телосложение и цель, считаю норму калорий на день.
+            /diary — записи за сегодня и сколько осталось до нормы.
+            /changelog — что нового в боте.
+            /id — ваш номер в Telegram: он нужен администратору, чтобы открыть доступ.""";
 
     static final String UNKNOWN_COMMAND = "Такой команды нет. Пришлите фото еды или опишите её словами.";
 
@@ -49,6 +53,20 @@ final class TelegramTexts {
 
     static final String BUTTON_AS_IS = "Оцени как есть";
 
+    static final String BUTTON_CANCEL = "Отменить";
+
+    static final String BUTTON_PROFILE_FILL = "Посчитать норму";
+
+    static final String BUTTON_PROFILE_CHANGE = "Пересчитать";
+
+    static final String BUTTON_ACCESS_GRANT = "✓ Выдать доступ";
+
+    static final String BUTTON_ACCESS_DENY = "✗ Отказать";
+
+    static final String BUTTON_CHANGELOG_SEND = "Разослать всем";
+
+    static final String BUTTON_CHANGELOG_DROP = "✗ Удалить";
+
     static final String DROPPED = "Не записал. Пришлите фото или опишите еду — оценю заново.";
 
     static final String DRAFT_GONE = "Эта оценка уже закрыта. Пришлите фото или опишите еду — оценю заново.";
@@ -56,6 +74,89 @@ final class TelegramTexts {
     static final String NOTHING_TO_SAVE = "Записывать пока нечего: сначала нужна оценка с блюдами.";
 
     static final String DIARY_EMPTY = "Сегодня в дневнике пусто. Пришлите фото еды или опишите её словами.";
+
+    // Доступ
+
+    static final String ACCESS_BETA = """
+            Карандаш пока в закрытом бета-тесте: доступ открывает администратор.
+
+            Нажмите «Подать заявку» — я передам её администраторам и напишу, когда решат.
+            Ваш номер: %d.""";
+
+    static final String ACCESS_REQUESTED = "Заявка отправлена администраторам. Напишу, как только её рассмотрят.";
+
+    static final String ACCESS_WAITING = "Заявка уже отправлена — ждём ответа администратора.";
+
+    static final String ACCESS_BLOCKED = "Доступ к боту закрыт.";
+
+    static final String BUTTON_REQUEST_ACCESS = "Подать заявку";
+
+    static final String ACCESS_GRANTED_BY = """
+            Доступ открыл %s.
+
+            Пришлите фото еды или опишите блюдо словами — верну оценку калорий.
+            Заодно посчитаю вашу норму на день: /profile.""";
+
+    static final String ACCESS_DENIED = "Заявку отклонили. Доступ к боту не открыт.";
+
+    static final String ACCESS_REQUEST = "Новая заявка на доступ: %s, номер %d.";
+
+    static final String ACCESS_DECIDED_ALLOWED = "Доступ открыт: %s.";
+
+    static final String ACCESS_DECIDED_BLOCKED = "Заявка отклонена: %s.";
+
+    static final String ACCESS_ALREADY_DECIDED = "Заявку уже закрыл %s.";
+
+    static final String ACCESS_DECISION_INFO = "Заявку от %s %s %s.";
+
+    static final String ACCESS_MY_NUMBER = "Ваш номер в Telegram: %d.";
+
+    static final String ACCESS_UNKNOWN_USER = "Такого номера нет. Пользователь должен сначала написать боту.";
+
+    static final String ACCESS_GRANTED_ADMIN = "Доступ выдан: %s. Пользователю написал.";
+
+    static final String ACCESS_DENIED_ADMIN = "Доступ закрыт: %s.";
+
+    static final String ACCESS_PROMOTED_ADMIN = "Теперь администратор: %s.";
+
+    static final String ADMIN_ONLY = "Эта команда только для администратора.";
+
+    static final String ADMIN_HELP = """
+            Команды администратора:
+
+            /users — кто ждёт доступа и у кого он есть
+            /grant НОМЕР — выдать доступ
+            /revoke НОМЕР — закрыть доступ
+            /promote НОМЕР — сделать администратором
+            /changelog ТЕКСТ — написать «что нового»: первая строка — заголовок, дальше текст. Рассылка — кнопкой.""";
+
+    static final String ADMIN_NEED_NUMBER = "Нужен номер пользователя: %s 123456789";
+
+    // Телосложение
+
+    static final String PROFILE_NOT_SET = """
+            Нормы пока нет. Посчитаю по формуле Миффлина — Сан Жеора: спрошу пол, возраст, рост, вес, \
+            сколько двигаетесь и какая цель.""";
+
+    static final String PROFILE_BAD_ANSWER = "Не понял ответ.";
+
+    static final String PROFILE_CANCELLED = "Остановились. Вернуться к расчёту — /profile.";
+
+    static final String PROFILE_BUSY = "Сначала закончим с нормой калорий — ответьте на вопрос выше или нажмите «Отменить».";
+
+    // Что нового
+
+    static final String CHANGELOG_EMPTY = "Пока ничего не публиковали.";
+
+    static final String CHANGELOG_DRAFT = "Черновик. Разослать всем, у кого есть доступ?";
+
+    static final String CHANGELOG_SENT = "Разослал. Получателей: %d.";
+
+    static final String CHANGELOG_DELETED = "Черновик удалён.";
+
+    static final String CHANGELOG_GONE = "Этой записи уже нет.";
+
+    static final String CHANGELOG_ALREADY_SENT = "Эту запись уже рассылали.";
 
     private TelegramTexts() {
     }

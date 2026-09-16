@@ -80,8 +80,8 @@ public class MessageHandler {
         try {
             byte[] photo = message.hasPhoto() ? downloadPhoto(message.photo()) : null;
             String text = message.hasPhoto() ? message.caption() : message.text();
-            reply = core.submit(
-                    TelegramInboundMessage.message(update.updateId(), message.from().id(), text), photo);
+            reply = core.submit(TelegramInboundMessage.message(update.updateId(), message.from().id(),
+                    message.from().displayName(), message.from().username(), text), photo);
         } catch (TelegramApiClient.FileTooLargeException exception) {
             log.info("Апдейт {}: фото больше лимита", update.updateId());
             telegram.sendMessage(chatId, BotTexts.PHOTO_TOO_LARGE);
@@ -130,8 +130,8 @@ public class MessageHandler {
         ScheduledFuture<?> typing = startTyping(chatId);
         TelegramReply reply;
         try {
-            reply = core.submit(
-                    TelegramInboundMessage.button(update.updateId(), callback.from().id(), callback.data()), null);
+            reply = core.submit(TelegramInboundMessage.button(update.updateId(), callback.from().id(),
+                    callback.from().displayName(), callback.from().username(), callback.data()), null);
         } catch (CoreUnavailableException exception) {
             log.warn("Апдейт {}: {}", update.updateId(), exception.getMessage());
             telegram.sendMessage(chatId, BotTexts.CORE_UNAVAILABLE);

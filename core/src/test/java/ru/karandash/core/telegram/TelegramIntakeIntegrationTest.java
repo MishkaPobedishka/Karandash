@@ -62,6 +62,7 @@ import static org.mockito.Mockito.when;
 @DirtiesContext
 @SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT, properties = {
         "karandash.internal-api.service-token=" + TelegramIntakeIntegrationTest.TOKEN,
+        "karandash.access.admins=" + TelegramIntakeIntegrationTest.ADMIN,
         "karandash.ai.provider=agent",
         "karandash.ai.agent.base-url=http://agent.invalid:8095",
         "karandash.ai.agent.service-token=agent-token",
@@ -70,6 +71,8 @@ import static org.mockito.Mockito.when;
 class TelegramIntakeIntegrationTest {
 
     static final String TOKEN = "test-core-token";
+    /** Первый администратор приходит из конфигурации — иначе в боте некому выдать доступ. */
+    static final long ADMIN = 700_000;
     private static final AtomicLong UPDATE_IDS = new AtomicLong(1_000);
     private static final RecognitionResult BUCKWHEAT = new RecognitionResult(List.of(new RecognitionItem(
             "Гречка с курицей", new BigDecimal("250"), new BigDecimal("320"), 380, 480,
@@ -128,24 +131,73 @@ class TelegramIntakeIntegrationTest {
     }
 
     @Test
-    void startBindsTelegramUserToSingleAccount() {
+    void newUserSeesBetaGateAndBindsToSingleAccount() {
         long telegramId = 700_001;
 
-        TelegramReply greeting = send(TelegramInboundMessage.message(nextUpdateId(), telegramId, "/start"), null);
-        send(TelegramInboundMessage.message(nextUpdateId(), telegramId, "/help"), null);
+        TelegramReply start = send(TelegramInboundMessage.message(nextUpdateId(), telegramId, "/start"), null);
+        TelegramReply food = send(TelegramInboundMessage.message(nextUpdateId(), telegramId, "борщ"), null);
 
-        assertThat(greeting.duplicate()).isFalse();
-        assertThat(greeting.messages()).singleElement().asString().startsWith("Привет! Я Карандаш");
+        assertThat(start.duplicate()).isFalse();
+        assertThat(start.messages()).singleElement().asString()
+                .startsWith("Карандаш пока в закрытом бета-тесте")
+                .contains(String.valueOf(telegramId));
+        assertThat(start.buttons()).extracting(ReplyButton::text).containsExactly("Подать заявку");
+        assertThat(food.messages()).singleElement().asString().startsWith("Карандаш пока в закрытом бета-тесте");
+        verify(recognitionModel, org.mockito.Mockito.never()).recognizeTextWithUsage(anyString());
         assertThat(jdbc.queryForObject(
                 "select count(*) from telegram_identity where telegram_id = ?", Integer.class, telegramId)).isOne();
         assertThat(jdbc.queryForObject("""
-                select a.status from account a join telegram_identity t on t.account_id = a.id
-                where t.telegram_id = ?""", String.class, telegramId)).isEqualTo("ACTIVE");
+                select a.access from account a join telegram_identity t on t.account_id = a.id
+                where t.telegram_id = ?""", String.class, telegramId)).isEqualTo("PENDING");
+    }
+
+    @Test
+    void firstAdminDecisionWinsAndBothSidesLearnWhoDecided() {
+        long applicant = 700_020;
+        long secondAdmin = 700_021;
+        allow(secondAdmin);
+        send(TelegramInboundMessage.message(nextUpdateId(), ADMIN, "/promote " + secondAdmin), null);
+        TelegramReply gate = send(TelegramInboundMessage.message(nextUpdateId(), applicant, "Мария", "masha", "/start"),
+                null);
+
+        TelegramReply requested = send(TelegramInboundMessage.button(nextUpdateId(), applicant, "Мария", "masha",
+                button(gate, 0)), null);
+        TelegramReply decision = send(TelegramInboundMessage.button(nextUpdateId(), ADMIN, "Костя", null,
+                "agrant:" + applicant), null);
+        TelegramReply late = send(TelegramInboundMessage.button(nextUpdateId(), secondAdmin, "Второй", null,
+                "adeny:" + applicant), null);
+
+        assertThat(requested.messages()).singleElement().asString().startsWith("Заявка отправлена");
+        assertThat(decision.messages()).singleElement().asString().isEqualTo("Доступ открыт: Мария (@masha).");
+        assertThat(late.messages()).singleElement().asString()
+                .as("решает тот, кто нажал первым")
+                .isEqualTo("Заявку уже закрыл Костя.");
+        assertThat(jdbc.queryForObject("""
+                select a.access from account a join telegram_identity t on t.account_id = a.id
+                where t.telegram_id = ?""", String.class, applicant)).isEqualTo("ALLOWED");
+        // Пользователю ушло, кто открыл доступ; второму администратору — кто закрыл заявку.
+        assertThat(notificationsFor(applicant)).anyMatch(text -> text.startsWith("Доступ открыл Костя."));
+        assertThat(notificationsFor(secondAdmin)).anyMatch(text -> text.contains("одобрил Костя"));
+    }
+
+    @Test
+    void onlyAdminRunsAdminCommands() {
+        long user = 700_022;
+        allow(user);
+
+        TelegramReply users = send(TelegramInboundMessage.message(nextUpdateId(), user, "/users"), null);
+        TelegramReply grant = send(TelegramInboundMessage.message(nextUpdateId(), user, "/grant 700023"), null);
+        TelegramReply button = send(TelegramInboundMessage.button(nextUpdateId(), user, "agrant:700023"), null);
+
+        assertThat(users.messages()).singleElement().asString().isEqualTo("Эта команда только для администратора.");
+        assertThat(grant.messages()).singleElement().asString().isEqualTo("Эта команда только для администратора.");
+        assertThat(button.messages()).singleElement().asString().isEqualTo("Эта команда только для администратора.");
     }
 
     @Test
     void recognizesTextOnceAndRecordsUsage() {
         long telegramId = 700_002;
+        allow(telegramId);
         when(recognitionModel.recognizeTextWithUsage(anyString())).thenReturn(new ModelRecognition(BUCKWHEAT,
                 new ModelUsage("claude-cli", "claude-sonnet-5", 1200, 150, new BigDecimal("0.0123"))));
         TelegramInboundMessage message = TelegramInboundMessage.message(nextUpdateId(), telegramId, "гречка с курицей");
@@ -175,6 +227,7 @@ class TelegramIntakeIntegrationTest {
     @Test
     void recognizesPhotoAndAsksQuestions() {
         byte[] photo = {(byte) 0xFF, (byte) 0xD8, (byte) 0xFF, 1, 2, 3};
+        allow(700_003);
         when(recognitionModel.recognizePhotoWithUsage(any(), any())).thenReturn(new ModelRecognition(
                 new RecognitionResult(List.of(), List.of("Что это за суп?")), ModelUsage.unknown()));
 
@@ -191,6 +244,7 @@ class TelegramIntakeIntegrationTest {
 
     @Test
     void modelFailureGivesFriendlyAnswerAndIsRecorded() {
+        allow(700_004);
         when(recognitionModel.recognizeTextWithUsage(anyString()))
                 .thenThrow(new ModelUnavailableException("Агент-адаптер ответил 504"));
 
@@ -223,6 +277,7 @@ class TelegramIntakeIntegrationTest {
     @Test
     void estimateGoesToDiaryOnlyAfterButton() {
         long telegramId = 700_010;
+        allow(telegramId);
         when(recognitionModel.recognizeTextWithUsage(anyString()))
                 .thenReturn(new ModelRecognition(BUCKWHEAT, ModelUsage.unknown()));
 
@@ -259,6 +314,7 @@ class TelegramIntakeIntegrationTest {
     @Test
     void commentRecalculatesTheSameMeal() {
         long telegramId = 700_011;
+        allow(telegramId);
         when(recognitionModel.recognizeTextWithUsage(anyString()))
                 .thenReturn(new ModelRecognition(DUMPLING_QUESTION, ModelUsage.unknown()))
                 .thenReturn(new ModelRecognition(DUMPLING, ModelUsage.unknown()));
@@ -288,6 +344,7 @@ class TelegramIntakeIntegrationTest {
     @Test
     void asIsButtonAsksModelForTypicalEstimate() {
         long telegramId = 700_012;
+        allow(telegramId);
         when(recognitionModel.recognizeTextWithUsage(anyString()))
                 .thenReturn(new ModelRecognition(DUMPLING_QUESTION, ModelUsage.unknown()))
                 .thenReturn(new ModelRecognition(DUMPLING, ModelUsage.unknown()));
@@ -305,6 +362,7 @@ class TelegramIntakeIntegrationTest {
     @Test
     void dropButtonForgetsEstimateAndNextMessageStartsOver() {
         long telegramId = 700_013;
+        allow(telegramId);
         when(recognitionModel.recognizeTextWithUsage(anyString()))
                 .thenReturn(new ModelRecognition(BUCKWHEAT, ModelUsage.unknown()));
 
@@ -324,6 +382,8 @@ class TelegramIntakeIntegrationTest {
     void diaryIsSeparatePerUser() {
         long first = 700_014;
         long second = 700_015;
+        allow(first);
+        allow(second);
         when(recognitionModel.recognizeTextWithUsage(anyString()))
                 .thenReturn(new ModelRecognition(BUCKWHEAT, ModelUsage.unknown()))
                 .thenReturn(new ModelRecognition(DUMPLING, ModelUsage.unknown()));
@@ -353,9 +413,91 @@ class TelegramIntakeIntegrationTest {
 
     @Test
     void diaryIsEmptyForNewUser() {
+        allow(700_016);
         TelegramReply reply = send(TelegramInboundMessage.message(nextUpdateId(), 700_016, "/diary"), null);
 
         assertThat(reply.messages()).singleElement().asString().startsWith("Сегодня в дневнике пусто");
+    }
+
+    @Test
+    void profileWizardCountsDailyNormAndDiaryShowsWhatIsLeft() {
+        long telegramId = 700_030;
+        allow(telegramId);
+        when(recognitionModel.recognizeTextWithUsage(anyString()))
+                .thenReturn(new ModelRecognition(BUCKWHEAT, ModelUsage.unknown()));
+
+        TelegramReply start = send(TelegramInboundMessage.message(nextUpdateId(), telegramId, "/profile"), null);
+        TelegramReply sex = send(TelegramInboundMessage.button(nextUpdateId(), telegramId, button(start, 0)), null);
+        TelegramReply age = send(TelegramInboundMessage.button(nextUpdateId(), telegramId, button(sex, 0)), null);
+        TelegramReply badAge = send(TelegramInboundMessage.message(nextUpdateId(), telegramId, "сто лет"), null);
+        TelegramReply height = send(TelegramInboundMessage.message(nextUpdateId(), telegramId, "33"), null);
+        TelegramReply weight = send(TelegramInboundMessage.message(nextUpdateId(), telegramId, "180"), null);
+        TelegramReply activity = send(TelegramInboundMessage.message(nextUpdateId(), telegramId, "80,5"), null);
+        TelegramReply goal = send(TelegramInboundMessage.button(nextUpdateId(), telegramId, "pact:MEDIUM"), null);
+        TelegramReply summary = send(TelegramInboundMessage.button(nextUpdateId(), telegramId, "pgoal:LOSS"), null);
+
+        assertThat(start.buttons()).extracting(ReplyButton::text).containsExactly("Посчитать норму");
+        assertThat(sex.messages()).singleElement().asString().startsWith("Посчитаю вашу норму калорий");
+        assertThat(age.messages()).singleElement().asString().startsWith("Сколько вам полных лет");
+        assertThat(badAge.messages()).singleElement().asString().startsWith("Не понял ответ.");
+        assertThat(height.messages()).singleElement().asString().startsWith("Какой у вас рост");
+        assertThat(weight.messages()).singleElement().asString().startsWith("Какой сейчас вес");
+        assertThat(activity.messages()).singleElement().asString().startsWith("Сколько двигаетесь");
+        assertThat(goal.messages()).singleElement().asString().startsWith("К чему идём?");
+        // Мужчина 33 года, 180 см, 80,5 кг: обмен 1795, с активностью 2782, минус 15% на похудении.
+        assertThat(summary.messages()).singleElement().asString()
+                .contains("Записал: Мужчина, 33 года, 180 см, 80,5 кг")
+                .contains("Основной обмен — 1770 ккал, с активностью выходит 2744 ккал")
+                .contains("Ваша норма: 2216–2449 ккал в день");
+        assertThat(jdbc.queryForObject("""
+                select g.type from goal g join telegram_identity t on t.account_id = g.account_id
+                where t.telegram_id = ? and g.status = 'ACTIVE'""", String.class, telegramId)).isEqualTo("LOSS");
+
+        TelegramReply estimate = send(TelegramInboundMessage.message(nextUpdateId(), telegramId, "гречка"), null);
+        send(TelegramInboundMessage.button(nextUpdateId(), telegramId, button(estimate, 0)), null);
+        TelegramReply diary = send(TelegramInboundMessage.message(nextUpdateId(), telegramId, "/diary"), null);
+
+        assertThat(diary.messages()).singleElement().asString()
+                .contains("Ваша норма: 2216–2449 ккал")
+                .contains("осталось 1736–2069 ккал");
+    }
+
+    @Test
+    void adminWritesChangelogAndSendsItToEveryoneWithAccess() {
+        long reader = 700_031;
+        allow(reader);
+
+        TelegramReply draft = send(TelegramInboundMessage.message(nextUpdateId(), ADMIN,
+                "/changelog Новые кнопки\nТеперь оценку можно записать в дневник."), null);
+        TelegramReply beforeSending = send(TelegramInboundMessage.message(nextUpdateId(), reader, "/changelog"), null);
+        TelegramReply sent = send(TelegramInboundMessage.button(nextUpdateId(), ADMIN, button(draft, 0)), null);
+        TelegramReply afterSending = send(TelegramInboundMessage.message(nextUpdateId(), reader, "/changelog"), null);
+
+        assertThat(draft.messages()).singleElement().asString()
+                .startsWith("Что нового\n\nНовые кнопки\n\nТеперь оценку можно записать в дневник.")
+                .endsWith("Черновик. Разослать всем, у кого есть доступ?");
+        assertThat(beforeSending.messages()).singleElement().asString()
+                .as("пока не разослали, пользователь записи не видит")
+                .isEqualTo("Пока ничего не публиковали.");
+        assertThat(sent.messages()).singleElement().asString().startsWith("Разослал. Получателей:");
+        assertThat(afterSending.messages()).singleElement().asString().contains("Новые кнопки");
+        assertThat(notificationsFor(reader)).anyMatch(text -> text.contains("Новые кнопки"));
+    }
+
+    /** Что ядро отправило человеку: события остаются в outbox и после публикации. */
+    private List<String> notificationsFor(long telegramId) {
+        return jdbc.queryForList("""
+                select payload ->> 'text' from outbox_event
+                where event_type = 'telegram.notification' and payload ->> 'chatId' = ?
+                order by created_at""", String.class, String.valueOf(telegramId));
+    }
+
+    /** Бот в бета-тесте: чтобы проверять еду, пользователю сначала открывают доступ. */
+    private void allow(long telegramId) {
+        send(TelegramInboundMessage.message(nextUpdateId(), telegramId, "/start"), null);
+        TelegramReply granted = send(
+                TelegramInboundMessage.message(nextUpdateId(), ADMIN, "/grant " + telegramId), null);
+        assertThat(granted.messages()).singleElement().asString().startsWith("Доступ выдан");
     }
 
     private int meals(long telegramId) {

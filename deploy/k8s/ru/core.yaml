@@ -71,6 +71,22 @@ spec:
                 secretKeyRef:
                   name: karandash-core
                   key: CORE_SERVICE_TOKEN
+            # Кто становится администратором бота при первом сообщении. Номера через запятую,
+            # взять их можно командой /id. Без этого заявки на доступ рассматривать некому.
+            - name: ADMIN_TELEGRAM_IDS
+              valueFrom:
+                secretKeyRef:
+                  name: karandash-core
+                  key: ADMIN_TELEGRAM_IDS
+                  optional: true
+            # Кто становится администратором бота при первом сообщении. Номера через запятую,
+            # свой номер человек узнаёт командой /id. Без этого заявки на доступ рассматривать некому.
+            - name: ADMIN_TELEGRAM_IDS
+              valueFrom:
+                secretKeyRef:
+                  name: karandash-core
+                  key: ADMIN_TELEGRAM_IDS
+                  optional: true
             - name: AI_PROVIDER
               value: agent
             - name: AGENT_BASE_URL

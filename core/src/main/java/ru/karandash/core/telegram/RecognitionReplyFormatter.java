@@ -37,6 +37,11 @@ public class RecognitionReplyFormatter {
             if (result.items().size() > 1) {
                 text.append("\n\nИтого: ").append(range(kcalMin, kcalMax)).append(" ккал");
             }
+            if (kcalMax > kcalMin) {
+                // Диапазон честнее, но ориентироваться проще по одному числу — даём и середину.
+                text.append(result.items().size() > 1 ? ", " : "\n\n")
+                        .append("примерно ").append((kcalMin + kcalMax) / 2).append(" ккал");
+            }
         }
         if (!result.questions().isEmpty()) {
             if (!text.isEmpty()) {

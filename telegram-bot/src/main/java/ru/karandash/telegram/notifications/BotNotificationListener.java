@@ -48,7 +48,7 @@ public class BotNotificationListener {
             return;
         }
         try {
-            telegram.sendMessage(notification.chatId(), notification.text());
+            telegram.sendMessage(notification.chatId(), notification.text(), notification.buttons());
         } catch (TelegramApiException exception) {
             if (exception.isPermanent()) {
                 log.warn("Уведомление не доставлено, повтор не поможет: код {}", exception.errorCode());

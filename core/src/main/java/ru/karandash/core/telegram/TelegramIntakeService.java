@@ -9,6 +9,8 @@ import ru.karandash.contracts.ai.RecognitionContract;
 import ru.karandash.contracts.ai.RecognitionResult;
 import ru.karandash.contracts.telegram.TelegramInboundMessage;
 import ru.karandash.contracts.telegram.TelegramReply;
+import ru.karandash.core.account.AccessState;
+import ru.karandash.core.account.AccountAccess;
 import ru.karandash.core.account.TelegramAccountService;
 import ru.karandash.core.ai.AiProperties;
 import ru.karandash.core.ai.AiProvider;
@@ -19,6 +21,8 @@ import ru.karandash.core.diary.DiaryService;
 import ru.karandash.core.diary.DraftSource;
 import ru.karandash.core.diary.MealDraft;
 import ru.karandash.core.diary.MealDraftService;
+import ru.karandash.core.profile.ProfileService;
+import ru.karandash.core.profile.ProfileSetup;
 import ru.karandash.core.usage.UsageRecorder;
 
 import java.time.Duration;
@@ -30,7 +34,7 @@ import java.util.function.Function;
 import java.util.function.Supplier;
 
 /**
- * Разговор с пользователем: дубль → привязка аккаунта → команда, оценка, уточнение или кнопка.
+ * Разговор с пользователем: дубль → аккаунт и доступ → команда, мастер расчёта нормы, оценка еды или кнопка.
  * Пока оценка не закрыта, обычное сообщение считается уточнением к ней, а не новой едой.
  * В логи не пишутся ни текст сообщения, ни фото, ни ответ модели.
  */
@@ -46,8 +50,11 @@ public class TelegramIntakeService {
     private final UsageRecorder usageRecorder;
     private final RecognitionReplyFormatter formatter;
     private final DiaryReplyFormatter diaryFormatter;
+    private final ProfileDialog profileDialog;
+    private final AdminDialog adminDialog;
     private final MealDraftService drafts;
     private final DiaryService diary;
+    private final ProfileService profiles;
     private final AiProperties aiProperties;
     private final TelegramIntakeProperties properties;
 
@@ -58,8 +65,11 @@ public class TelegramIntakeService {
             UsageRecorder usageRecorder,
             RecognitionReplyFormatter formatter,
             DiaryReplyFormatter diaryFormatter,
+            ProfileDialog profileDialog,
+            AdminDialog adminDialog,
             MealDraftService drafts,
             DiaryService diary,
+            ProfileService profiles,
             AiProperties aiProperties,
             TelegramIntakeProperties properties
     ) {
@@ -69,8 +79,11 @@ public class TelegramIntakeService {
         this.usageRecorder = usageRecorder;
         this.formatter = formatter;
         this.diaryFormatter = diaryFormatter;
+        this.profileDialog = profileDialog;
+        this.adminDialog = adminDialog;
         this.drafts = drafts;
         this.diary = diary;
+        this.profiles = profiles;
         this.aiProperties = aiProperties;
         this.properties = properties;
     }
@@ -84,10 +97,15 @@ public class TelegramIntakeService {
             return TelegramReply.duplicateUpdate();
         }
         try {
-            UUID accountId = accounts.resolveAccount(message.telegramUserId());
+            TelegramAccountService.Resolved resolved = accounts.resolveAccount(
+                    message.telegramUserId(), message.userName(), message.userHandle());
+            AccountAccess account = resolved.account();
+            if (!account.allowed()) {
+                return locked(account, message);
+            }
             return message.isButton()
-                    ? button(accountId, message.callbackData())
-                    : respond(accountId, message, photo);
+                    ? button(account, message.callbackData())
+                    : respond(account, message, photo);
         } catch (RuntimeException exception) {
             // Непредвиденный сбой: освобождаем апдейт, чтобы повторная доставка обработалась заново.
             updates.deleteById(message.updateId());
@@ -95,15 +113,40 @@ public class TelegramIntakeService {
         }
     }
 
-    private TelegramReply respond(UUID accountId, TelegramInboundMessage message, IncomingPhoto photo) {
+    /** Бот в бета-тесте: без доступа работает только заявка. */
+    private TelegramReply locked(AccountAccess account, TelegramInboundMessage message) {
+        boolean wantsAccess = message.isButton()
+                && DialogCallback.parse(message.callbackData())
+                .filter(callback -> callback.action() == DialogCallback.Action.REQUEST_ACCESS)
+                .isPresent();
+        if (wantsAccess && account.access() == AccessState.PENDING) {
+            log.info("Заявка на доступ отправлена администраторам");
+            return adminDialog.request(account);
+        }
+        return switch (account.access()) {
+            case BLOCKED -> TelegramReply.of(TelegramTexts.ACCESS_BLOCKED);
+            case REQUESTED -> TelegramReply.of(TelegramTexts.ACCESS_WAITING);
+            default -> TelegramReply.withButtons(
+                    TelegramTexts.ACCESS_BETA.formatted(account.telegramId()),
+                    List.of(new DialogCallback(DialogCallback.Action.REQUEST_ACCESS)
+                            .button(TelegramTexts.BUTTON_REQUEST_ACCESS)));
+        };
+    }
+
+    private TelegramReply respond(AccountAccess account, TelegramInboundMessage message, IncomingPhoto photo) {
+        UUID accountId = account.accountId();
         String text = message.text() == null ? "" : message.text().strip();
+        if (text.startsWith("/")) {
+            return command(account, text);
+        }
+        Optional<ProfileSetup> setup = profiles.activeSetup(accountId);
+        if (setup.isPresent()) {
+            return profileAnswer(accountId, setup.get(), text, photo);
+        }
         if (photo != null && photo.bytes() != null && photo.bytes().length > 0) {
             // Новое фото — всегда новая еда, прошлая оценка закрывается.
             return estimate(accountId, RecognitionKind.PHOTO, DraftSource.PHOTO, null,
                     () -> recognitionModel.recognizePhotoWithUsage(photo.bytes(), photo.contentType()));
-        }
-        if (text.startsWith("/")) {
-            return command(accountId, text);
         }
         if (text.isEmpty()) {
             return TelegramReply.of(TelegramTexts.HELP);
@@ -119,46 +162,168 @@ public class TelegramIntakeService {
                 () -> recognitionModel.recognizeTextWithUsage(text));
     }
 
-    private TelegramReply command(UUID accountId, String text) {
-        String command = text.split("\\s+", 2)[0].toLowerCase(Locale.ROOT);
+    private TelegramReply command(AccountAccess account, String text) {
+        String[] parts = text.split("\\s+", 2);
+        String command = parts[0].toLowerCase(Locale.ROOT);
         int botNameStart = command.indexOf('@');
         if (botNameStart > 0) {
             command = command.substring(0, botNameStart);
         }
+        String argument = parts.length > 1 ? parts[1].strip() : "";
         return switch (command) {
             case "/start" -> TelegramReply.of(TelegramTexts.GREETING);
             case "/help" -> TelegramReply.of(TelegramTexts.HELP);
-            case "/diary", "/дневник" -> TelegramReply.of(diaryFormatter.day(diary.today(accountId)));
+            case "/id", "/whoami" -> TelegramReply.of(
+                    TelegramTexts.ACCESS_MY_NUMBER.formatted(account.telegramId()));
+            case "/diary", "/дневник" -> TelegramReply.of(diaryFormatter.day(
+                    diary.today(account.accountId()), profiles.dailyTarget(account.accountId())));
+            case "/profile", "/профиль" -> profile(account.accountId());
+            case "/changelog" -> changelog(account, argument);
+            case "/admin" -> account.admin()
+                    ? TelegramReply.of(TelegramTexts.ADMIN_HELP)
+                    : TelegramReply.of(TelegramTexts.ADMIN_ONLY);
+            case "/users" -> account.admin() ? adminDialog.users() : TelegramReply.of(TelegramTexts.ADMIN_ONLY);
+            case "/grant" -> adminAction(account, command, argument,
+                    telegramId -> adminDialog.grant(account, telegramId));
+            case "/revoke" -> adminAction(account, command, argument,
+                    telegramId -> adminDialog.revoke(account, telegramId));
+            case "/promote" -> adminAction(account, command, argument,
+                    telegramId -> adminDialog.promote(account, telegramId));
             default -> TelegramReply.of(TelegramTexts.UNKNOWN_COMMAND);
         };
     }
 
-    /** Нажатие кнопки под прошлой оценкой. Черновик ищется вместе с аккаунтом — чужой не открыть. */
-    private TelegramReply button(UUID accountId, String callbackData) {
-        Optional<DialogCallback> callback = DialogCallback.parse(callbackData);
-        if (callback.isEmpty()) {
+    private TelegramReply adminAction(
+            AccountAccess account,
+            String command,
+            String argument,
+            Function<Long, TelegramReply> action
+    ) {
+        if (!account.admin()) {
+            return TelegramReply.of(TelegramTexts.ADMIN_ONLY);
+        }
+        try {
+            return action.apply(Long.parseLong(argument.strip()));
+        } catch (NumberFormatException exception) {
+            return TelegramReply.of(TelegramTexts.ADMIN_NEED_NUMBER.formatted(command));
+        }
+    }
+
+    private TelegramReply changelog(AccountAccess account, String argument) {
+        if (account.admin() && !argument.isBlank()) {
+            return adminDialog.draftChangelog(argument, account.accountId());
+        }
+        return adminDialog.changelog(account.admin());
+    }
+
+    /** Нажатие кнопки под прошлым ответом. Всё, что кнопка называет, проверяется по аккаунту нажавшего. */
+    private TelegramReply button(AccountAccess account, String callbackData) {
+        Optional<DialogCallback> parsed = DialogCallback.parse(callbackData);
+        if (parsed.isEmpty()) {
             log.info("Кнопка с неизвестными данными — отвечаем, что оценка закрыта");
             return TelegramReply.of(TelegramTexts.DRAFT_GONE);
         }
-        Optional<MealDraft> draft = drafts.find(accountId, callback.get().draftId());
+        DialogCallback callback = parsed.get();
+        return switch (callback.action()) {
+            case SAVE, DROP, AS_IS -> mealButton(account.accountId(), callback);
+            case REQUEST_ACCESS -> TelegramReply.of(TelegramTexts.HELP);
+            case PROFILE_START -> profileDialog.question(profiles.startSetup(account.accountId()));
+            case PROFILE_SEX, PROFILE_ACTIVITY, PROFILE_GOAL -> profileChoice(account.accountId(), callback);
+            case PROFILE_CANCEL -> {
+                profiles.cancelSetup(account.accountId());
+                yield TelegramReply.of(TelegramTexts.PROFILE_CANCELLED);
+            }
+            case ACCESS_GRANT, ACCESS_DENY -> accessButton(account, callback);
+            case CHANGELOG_SEND -> changelogButton(account, callback, true);
+            case CHANGELOG_DROP -> changelogButton(account, callback, false);
+        };
+    }
+
+    private TelegramReply mealButton(UUID accountId, DialogCallback callback) {
+        Optional<MealDraft> draft = callback.uuidPayload().flatMap(id -> drafts.find(accountId, id));
         if (draft.isEmpty()) {
             return TelegramReply.of(TelegramTexts.DRAFT_GONE);
         }
-        return switch (callback.get().action()) {
+        return switch (callback.action()) {
             case SAVE -> save(accountId, draft.get());
             case DROP -> {
                 drafts.discard(accountId);
                 yield TelegramReply.of(TelegramTexts.DROPPED);
             }
-            case AS_IS -> revise(accountId, draft.get(), RecognitionContract.NO_DETAILS_COMMENT);
+            default -> revise(accountId, draft.get(), RecognitionContract.NO_DETAILS_COMMENT);
         };
     }
+
+    private TelegramReply accessButton(AccountAccess account, DialogCallback callback) {
+        if (!account.admin()) {
+            return TelegramReply.of(TelegramTexts.ADMIN_ONLY);
+        }
+        return callback.numberPayload()
+                .map(telegramId -> adminDialog.decide(account, telegramId,
+                        callback.action() == DialogCallback.Action.ACCESS_GRANT))
+                .orElseGet(() -> TelegramReply.of(TelegramTexts.ACCESS_UNKNOWN_USER));
+    }
+
+    private TelegramReply changelogButton(AccountAccess account, DialogCallback callback, boolean publish) {
+        if (!account.admin()) {
+            return TelegramReply.of(TelegramTexts.ADMIN_ONLY);
+        }
+        return callback.uuidPayload()
+                .map(id -> publish ? adminDialog.publishChangelog(id) : adminDialog.deleteChangelog(id))
+                .orElseGet(() -> TelegramReply.of(TelegramTexts.CHANGELOG_GONE));
+    }
+
+    // Норма калорий
+
+    private TelegramReply profile(UUID accountId) {
+        return profiles.current(accountId)
+                .map(summary -> TelegramReply.withButtons(profileDialog.summary(summary),
+                        List.of(ProfileDialog.startButton(true))))
+                .orElseGet(() -> TelegramReply.withButtons(TelegramTexts.PROFILE_NOT_SET,
+                        List.of(ProfileDialog.startButton(false))));
+    }
+
+    private TelegramReply profileAnswer(UUID accountId, ProfileSetup setup, String text, IncomingPhoto photo) {
+        if (photo != null || text.isEmpty()) {
+            return withQuestion(TelegramTexts.PROFILE_BUSY, setup);
+        }
+        Optional<ProfileSetup> answered = profileDialog.applyText(setup, text);
+        if (answered.isEmpty()) {
+            return withQuestion(TelegramTexts.PROFILE_BAD_ANSWER, setup);
+        }
+        return continueSetup(accountId, answered.get());
+    }
+
+    private TelegramReply profileChoice(UUID accountId, DialogCallback callback) {
+        Optional<ProfileSetup> setup = profiles.activeSetup(accountId);
+        if (setup.isEmpty()) {
+            return profile(accountId);
+        }
+        return profileDialog.applyChoice(setup.get(), callback)
+                .map(answered -> continueSetup(accountId, answered))
+                .orElseGet(() -> profileDialog.question(setup.get()));
+    }
+
+    private TelegramReply continueSetup(UUID accountId, ProfileSetup setup) {
+        if (!profileDialog.finished(setup)) {
+            return profileDialog.question(profiles.saveSetup(accountId, setup));
+        }
+        log.info("Норма калорий посчитана по формуле Миффлина — Сан Жеора");
+        return TelegramReply.of(profileDialog.summary(profiles.complete(accountId, setup.answers())));
+    }
+
+    private TelegramReply withQuestion(String note, ProfileSetup setup) {
+        TelegramReply question = profileDialog.question(setup);
+        return new TelegramReply(false, List.of(note + "\n\n" + question.messages().getFirst()), question.buttons());
+    }
+
+    // Еда
 
     private TelegramReply save(UUID accountId, MealDraft draft) {
         if (draft.result().items().isEmpty()) {
             return TelegramReply.of(TelegramTexts.NOTHING_TO_SAVE);
         }
-        String reply = diaryFormatter.saved(diary.record(draft));
+        String reply = diaryFormatter.saved(diary.record(draft), profiles.dailyTarget(accountId));
         drafts.discard(accountId);
         log.info("Запись дневника создана: позиций {}, уточнений до записи {}",
                 draft.result().items().size(), draft.revision());
@@ -172,8 +337,7 @@ public class TelegramIntakeService {
             String inputText,
             Supplier<ModelRecognition> call
     ) {
-        return recognize(accountId, kind, call,
-                result -> drafts.save(accountId, source, inputText, result, 0));
+        return recognize(accountId, kind, call, result -> drafts.save(accountId, source, inputText, result, 0));
     }
 
     /** Пересчёт той же еды с учётом замечания пользователя: прошлая оценка уходит модели как контекст. */
@@ -211,10 +375,7 @@ public class TelegramIntakeService {
     }
 
     /** Оценку показываем вместе с решением, которое от пользователя требуется. */
-    private TelegramReply estimateReply(
-            Function<RecognitionResult, MealDraft> store,
-            RecognitionResult result
-    ) {
+    private TelegramReply estimateReply(Function<RecognitionResult, MealDraft> store, RecognitionResult result) {
         String text = formatter.format(result);
         if (result.items().isEmpty() && result.questions().isEmpty()) {
             return TelegramReply.of(text);

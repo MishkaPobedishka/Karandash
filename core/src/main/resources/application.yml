@@ -43,6 +43,9 @@ karandash:
     budget-warning-ratio: ${BUDGET_WARNING_RATIO:0.90}
   internal-api:
     service-token: ${CORE_SERVICE_TOKEN:}
+  access:
+    # Кто становится администратором при первом сообщении: без этого выдать права некому.
+    admins: ${ADMIN_TELEGRAM_IDS:}
   telegram:
     max-text-length: 2000
     update-retention: 48h
