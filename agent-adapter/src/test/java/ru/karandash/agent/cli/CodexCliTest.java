@@ -10,7 +10,9 @@ import ru.karandash.agent.testing.FakeCliSupport;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.nio.file.attribute.FileTime;
 import java.time.Duration;
+import java.time.Instant;
 import java.util.List;
 import java.util.Map;
 
@@ -136,6 +138,12 @@ class CodexCliTest {
             Files.writeString(home.resolve("auth.json"), "{\"обновлённый\":true}");
             subscription.prepare(new RecognitionTask.Text("щи"), directory);
             assertThat(Files.readString(home.resolve("auth.json"))).contains("обновлённый");
+
+            // А вот свежий вход из секрета должен победить: иначе обновление доделывали бы руками.
+            Files.writeString(authFile, "{\"auth_mode\":\"chatgpt\",\"новый\":true}");
+            Files.setLastModifiedTime(authFile, FileTime.from(Instant.now().plusSeconds(60)));
+            subscription.prepare(new RecognitionTask.Text("борщ"), directory);
+            assertThat(Files.readString(home.resolve("auth.json"))).contains("новый");
 
             assertThat(subscription.healthCheck(directory).command()).containsExactly("codex", "login", "status");
         }

@@ -3,6 +3,8 @@ package ru.karandash.agent.cli;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import ru.karandash.agent.AgentProperties;
 import ru.karandash.contracts.ai.ModelUsage;
 import ru.karandash.contracts.ai.RecognitionContract;
@@ -29,6 +31,8 @@ import java.util.Set;
 public final class CodexCli implements AgentCli {
 
     public static final String PROVIDER = "codex-cli";
+
+    private static final Logger log = LoggerFactory.getLogger(CodexCli.class);
 
     static final List<String> DISABLED_FEATURES =
             List.of("shell_tool", "unified_exec", "view_image", "apps", "plugins", "multi_agent");
@@ -124,7 +128,7 @@ public final class CodexCli implements AgentCli {
         }
         try {
             Files.createDirectories(settings.home());
-            copyAuthFileIfAbsent(settings.home());
+            copyAuthFileIfNewer(settings.home());
         } catch (IOException exception) {
             throw new CliCallException(CliCallException.Reason.START_FAILED,
                     "Не удалось подготовить каталог настроек CLI", exception);
@@ -132,12 +136,22 @@ public final class CodexCli implements AgentCli {
         return settings.home();
     }
 
-    /** Кладём auth.json из секрета один раз: дальше файлом владеет сам CLI и обновляет его. */
-    private void copyAuthFileIfAbsent(Path home) throws IOException {
-        Path target = home.resolve(AUTH_FILE);
-        if (Files.exists(target) || !authFileReadable()) {
+    /**
+     * Файлом входа владеет сам CLI: он обновляет токен и переписывает auth.json, поэтому его версию
+     * трогать нельзя. Но когда вход меняют снаружи — кладут в секрет новый auth.json, — побеждает секрет:
+     * иначе обновление пришлось бы доделывать руками, удаляя старый файл из тома.
+     */
+    void copyAuthFileIfNewer(Path home) throws IOException {
+        if (!authFileReadable()) {
             return;
         }
+        Path target = home.resolve(AUTH_FILE);
+        if (Files.exists(target)
+                && !Files.getLastModifiedTime(settings.authFile()).toInstant()
+                .isAfter(Files.getLastModifiedTime(target).toInstant())) {
+            return;
+        }
+        log.info("Беру файл входа CLI из секрета: он новее того, что лежит в каталоге настроек");
         Files.copy(settings.authFile(), target, StandardCopyOption.REPLACE_EXISTING);
         if (FileSystems.getDefault().supportedFileAttributeViews().contains("posix")) {
             Files.setPosixFilePermissions(target, PosixFilePermissions.fromString("rw-------"));
