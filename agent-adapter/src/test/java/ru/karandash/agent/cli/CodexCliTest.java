@@ -159,6 +159,14 @@ class CodexCliTest {
                 .extracting(exception -> ((CliCallException) exception).reason())
                 .isEqualTo(CliCallException.Reason.AUTH_REJECTED);
 
+        // Подписка: файл входа успели использовать в другом месте, и CLI больше не может обновить токен.
+        CliOutputHandler staleSubscription = cli.newOutputHandler();
+        staleSubscription.onLine("{\"type\":\"turn.failed\",\"error\":{\"message\":\"Your access token could not"
+                + " be refreshed because your refresh token was already used. Please log out and sign in again.\"}}");
+        assertThatThrownBy(() -> staleSubscription.complete(EXITED))
+                .extracting(exception -> ((CliCallException) exception).reason())
+                .isEqualTo(CliCallException.Reason.AUTH_REJECTED);
+
         CliOutputHandler incomplete = cli.newOutputHandler();
         incomplete.onLine("{\"type\":\"thread.started\",\"thread_id\":\"t\"}");
         assertThatThrownBy(() -> incomplete.complete(EXITED))

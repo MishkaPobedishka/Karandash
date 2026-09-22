@@ -37,8 +37,14 @@ public final class CodexCli implements AgentCli {
     private static final Set<String> FORBIDDEN_ITEMS =
             Set.of("command_execution", "file_change", "mcp_tool_call", "web_search", "collab_tool_call");
     private static final String AUTH_FILE = "auth.json";
-    private static final List<String> AUTH_FAILURE_MARKERS =
-            List.of("401", "unauthorized", "invalid api key", "incorrect api key", "not logged in");
+    /**
+     * По этим словам понимаем, что дело в учётных данных, а не в самом запросе.
+     * Про обновление токена важно отдельно: у подписки он ротуется, и если тем же файлом
+     * успели воспользоваться в другом месте, CLI продолжает говорить «Logged in», но каждый вызов падает.
+     */
+    private static final List<String> AUTH_FAILURE_MARKERS = List.of(
+            "401", "unauthorized", "invalid api key", "incorrect api key", "not logged in",
+            "could not be refreshed", "refresh token", "sign in again", "missing bearer");
 
     private final AgentProperties.Codex settings;
     private final ObjectMapper objectMapper;
