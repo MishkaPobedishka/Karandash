@@ -19,13 +19,16 @@ public class UsageRecorder {
     private static final String UNKNOWN = "unknown";
 
     private final UsageRecordRepository repository;
+    private final ModelMetrics metrics;
 
-    public UsageRecorder(UsageRecordRepository repository) {
+    public UsageRecorder(UsageRecordRepository repository, ModelMetrics metrics) {
         this.repository = repository;
+        this.metrics = metrics;
     }
 
     public void record(UUID accountId, String kind, String fallbackProvider, ModelUsage usage, Duration latency) {
         ModelUsage safeUsage = usage == null ? ModelUsage.unknown() : usage;
+        metrics.record(kind);
         try {
             repository.save(new UsageRecordEntity(
                     accountId,
