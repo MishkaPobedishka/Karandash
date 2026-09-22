@@ -2,6 +2,7 @@ package ru.karandash.telegram.polling;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import ru.karandash.contracts.telegram.ReplyPhoto;
 import ru.karandash.contracts.telegram.TelegramInboundMessage;
 import ru.karandash.contracts.telegram.TelegramReply;
 import ru.karandash.telegram.api.CallbackQuery;
@@ -154,12 +155,25 @@ public class MessageHandler {
         log.info("Апдейт {} обработан: кнопка ({} сообщ.)", update.updateId(), reply.messages().size());
     }
 
-    /** Кнопки ядро присылает к последнему сообщению ответа. */
+    /** Кнопки ядро присылает к последнему сообщению ответа, фотографии — альбомом перед ним. */
     private void send(long chatId, TelegramReply reply) {
+        sendPhotosQuietly(chatId, reply.photos());
         List<String> messages = reply.messages();
         for (int index = 0; index < messages.size(); index++) {
             boolean last = index == messages.size() - 1;
             telegram.sendMessage(chatId, messages.get(index), last ? reply.buttons() : List.of());
+        }
+    }
+
+    private void sendPhotosQuietly(long chatId, List<ReplyPhoto> photos) {
+        if (photos.isEmpty()) {
+            return;
+        }
+        try {
+            telegram.sendPhotos(chatId, photos);
+        } catch (RuntimeException exception) {
+            // Ссылка столовой могла протухнуть — текст с подбором важнее картинок, его всё равно отправим.
+            log.info("Фотографии блюд не отправлены: {}", exception.getMessage());
         }
     }
 

@@ -264,6 +264,50 @@ class MessageHandlerTest {
         assertThat(telegram.sentMessages).isEmpty();
     }
 
+    @Test
+    void sendsDishPhotosAsAlbumBeforeTheTextWithButtons() throws Exception {
+        core.expect(requestTo(CORE_URL)).andRespond(withSuccess("""
+                {"duplicate":false,"messages":["Сегодня в столовой:"],
+                "buttons":[{"text":"Показать всё меню","data":"lmenu:-"}],
+                "photos":[{"url":"https://canteen/1.jpg","caption":"Борщ — 120 ₽"},
+                {"url":"https://canteen/2.jpg","caption":"Котлета — 180 ₽"}]}""",
+                MediaType.APPLICATION_JSON));
+
+        handler.handle(objectMapper.readValue("""
+                {"update_id":26,"callback_query":{"id":"cb-6","from":{"id":42,"is_bot":false},
+                "data":"lshow:-","message":{"message_id":62,"chat":{"id":42,"type":"private"}}}}""", Update.class));
+
+        assertThat(telegram.sentAlbums).singleElement().satisfies(album -> {
+            assertThat(album.path("chat_id").asLong()).isEqualTo(42);
+            assertThat(album.path("media")).hasSize(2);
+            assertThat(album.path("media").get(0).path("type").asText()).isEqualTo("photo");
+            assertThat(album.path("media").get(0).path("media").asText()).isEqualTo("https://canteen/1.jpg");
+            assertThat(album.path("media").get(1).path("caption").asText()).isEqualTo("Котлета — 180 ₽");
+        });
+        assertThat(telegram.sentMessages).singleElement().satisfies(message -> {
+            assertThat(message.path("text").asText()).isEqualTo("Сегодня в столовой:");
+            assertThat(message.path("reply_markup").path("inline_keyboard").get(0).get(0).path("callback_data")
+                    .asText()).isEqualTo("lmenu:-");
+        });
+    }
+
+    @Test
+    void sendsTextEvenWhenTelegramRefusesThePhotos() throws Exception {
+        telegram.failMethod("sendMediaGroup", 400, "Bad Request: wrong file identifier");
+        core.expect(requestTo(CORE_URL)).andRespond(withSuccess("""
+                {"duplicate":false,"messages":["Сегодня в столовой:"],"buttons":[],
+                "photos":[{"url":"https://canteen/1.jpg","caption":"Борщ"},
+                {"url":"https://canteen/2.jpg","caption":"Котлета"}]}""",
+                MediaType.APPLICATION_JSON));
+
+        handler.handle(objectMapper.readValue("""
+                {"update_id":27,"callback_query":{"id":"cb-7","from":{"id":42,"is_bot":false},
+                "data":"lshow:-","message":{"message_id":63,"chat":{"id":42,"type":"private"}}}}""", Update.class));
+
+        assertThat(telegram.sentMessages).singleElement()
+                .satisfies(message -> assertThat(message.path("text").asText()).isEqualTo("Сегодня в столовой:"));
+    }
+
     private Update update(long updateId, String chatType, String messageFields) throws Exception {
         String json = """
                 {"update_id":%d,"message":{"message_id":1,"from":{"id":42,"is_bot":false},

@@ -75,11 +75,22 @@ public class CanteenClient {
                         number(nutrition.path("calories")),
                         number(nutrition.path("proteins")),
                         number(nutrition.path("fats")),
-                        number(nutrition.path("carbohydrates"))));
+                        number(nutrition.path("carbohydrates")),
+                        photo(product)));
             }
         }
         dishes.removeIf(dish -> dish.name().isBlank());
         return new CanteenMenu(dishes);
+    }
+
+    /** Полноразмерная фотография блюда; если её нет — миниатюра из списка. */
+    private static String photo(JsonNode product) {
+        String original = text(product.path("originalImage"));
+        return original != null && !original.isBlank() ? original : text(product.path("image"));
+    }
+
+    private static String text(JsonNode node) {
+        return node == null || node.isMissingNode() || node.isNull() ? null : node.asText(null);
     }
 
     private static BigDecimal number(JsonNode node) {

@@ -23,7 +23,7 @@ public record CanteenProperties(
 ) {
 
     private static final List<String> DEFAULT_SKIP = List.of(
-            "Холодные напитки", "Горячие напитки", "Авторские напитки", "Конфеты", "Снеки");
+            "Холодные напитки", "Горячие напитки", "Авторские напитки", "Конфеты", "Снеки", "Алкоголь");
 
     public CanteenProperties {
         baseUrl = baseUrl == null || baseUrl.isBlank()

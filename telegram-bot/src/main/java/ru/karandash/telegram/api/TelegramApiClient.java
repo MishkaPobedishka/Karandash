@@ -5,6 +5,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import org.springframework.http.MediaType;
 import org.springframework.web.client.RestClient;
 import ru.karandash.contracts.telegram.ReplyButton;
+import ru.karandash.contracts.telegram.ReplyPhoto;
 
 import java.io.IOException;
 import java.io.InputStream;
@@ -93,6 +94,46 @@ public class TelegramApiClient {
             body.put("reply_markup", Map.of("inline_keyboard", keyboard(buttons)));
         }
         call("sendMessage", body, objectMapper.constructType(Object.class));
+    }
+
+    /**
+     * Фотографии по ссылкам: несколько — одним альбомом, одна — обычным фото.
+     * Альбом кнопок не держит, поэтому он уходит отдельно от текста с кнопками.
+     */
+    public void sendPhotos(long chatId, List<ReplyPhoto> photos) {
+        if (photos == null || photos.isEmpty()) {
+            return;
+        }
+        List<ReplyPhoto> album = photos.size() <= ReplyPhoto.MAX_IN_ALBUM
+                ? photos
+                : photos.subList(0, ReplyPhoto.MAX_IN_ALBUM);
+        if (album.size() == 1) {
+            Map<String, Object> body = new LinkedHashMap<>();
+            body.put("chat_id", chatId);
+            body.put("photo", album.getFirst().url());
+            putCaption(body, album.getFirst());
+            call("sendPhoto", body, objectMapper.constructType(Object.class));
+            return;
+        }
+        List<Map<String, Object>> media = album.stream().map(photo -> {
+            Map<String, Object> item = new LinkedHashMap<>();
+            item.put("type", "photo");
+            item.put("media", photo.url());
+            putCaption(item, photo);
+            return item;
+        }).toList();
+        call("sendMediaGroup", Map.of("chat_id", chatId, "media", media),
+                objectMapper.constructType(Object.class));
+    }
+
+    private static void putCaption(Map<String, Object> body, ReplyPhoto photo) {
+        String caption = photo.caption();
+        if (caption == null || caption.isBlank()) {
+            return;
+        }
+        body.put("caption", caption.length() <= ReplyPhoto.MAX_CAPTION
+                ? caption
+                : caption.substring(0, ReplyPhoto.MAX_CAPTION));
     }
 
     /** Ответ на нажатие: без него Telegram крутит часы на кнопке до таймаута. */

@@ -34,6 +34,7 @@ import ru.karandash.core.profile.ProfileSetup;
 import ru.karandash.core.usage.UsageRecorder;
 
 import java.time.Duration;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Locale;
 import java.util.Optional;
@@ -204,14 +205,16 @@ public class TelegramIntakeService {
         }
         String argument = parts.length > 1 ? parts[1].strip() : "";
         return switch (command) {
-            case "/start" -> TelegramReply.of(withAdminHint(account, TelegramTexts.GREETING));
-            case "/help" -> TelegramReply.of(withAdminHint(account, TelegramTexts.HELP));
+            case "/start" -> TelegramReply.withButtons(
+                    withAdminHint(account, TelegramTexts.GREETING), List.of(lunchFormatter.menuButton()));
+            case "/help" -> TelegramReply.withButtons(
+                    withAdminHint(account, TelegramTexts.HELP), List.of(lunchFormatter.menuButton()));
             case "/id", "/whoami" -> TelegramReply.of(
                     TelegramTexts.ACCESS_MY_NUMBER.formatted(account.telegramId()));
             case "/diary", "/дневник" -> TelegramReply.of(diaryFormatter.day(
                     diary.today(account.accountId()), profiles.dailyTarget(account.accountId())));
             case "/profile", "/профиль" -> profile(account.accountId());
-            case "/lunch", "/обед", "/столовая" -> lunch(account.accountId());
+            case "/lunch", "/обед", "/столовая" -> lunch(account.accountId(), false);
             case "/changelog" -> changelog(account, argument);
             case "/admin" -> adminOnly(account, adminDialog::panel);
             case "/users" -> adminOnly(account, () -> adminDialog.userList(account));
@@ -275,6 +278,8 @@ public class TelegramIntakeService {
                     telegramId -> adminDialog.revoke(account, telegramId));
             case ACCESS_PROMOTE -> adminOnly(account, callback,
                     telegramId -> adminDialog.promote(account, telegramId));
+            case LUNCH_SHOW -> lunch(account.accountId(), false);
+            case LUNCH_MENU -> lunch(account.accountId(), true);
             case LUNCH_MAILING -> {
                 boolean enabled = subscriptions.toggle(account.accountId());
                 yield TelegramReply.withButtons(
@@ -342,8 +347,11 @@ public class TelegramIntakeService {
                 .orElseGet(() -> TelegramReply.of(TelegramTexts.CHANGELOG_GONE));
     }
 
-    /** Что взять на обед сегодня: меню столовой плюс остаток калорий этого человека. */
-    private TelegramReply lunch(UUID accountId) {
+    /**
+     * Что взять на обед сегодня: подбор под остаток калорий этого человека, фотографии предложенных блюд
+     * и, если попросили, всё меню целиком.
+     */
+    private TelegramReply lunch(UUID accountId, boolean withWholeMenu) {
         Optional<CanteenMenu> menu = canteen.today();
         if (menu.isEmpty()) {
             return TelegramReply.of(TelegramTexts.LUNCH_UNAVAILABLE);
@@ -352,10 +360,18 @@ public class TelegramIntakeService {
         if (suggestion.isEmpty()) {
             return TelegramReply.of(TelegramTexts.LUNCH_UNAVAILABLE);
         }
-        boolean enabled = subscriptions.enabled(accountId);
-        return TelegramReply.withButtons(
-                lunchFormatter.answer(suggestion.get(), lunchContext.remaining(accountId)),
-                List.of(mailingButton(enabled)));
+        List<String> messages = new ArrayList<>();
+        messages.add(lunchFormatter.answer(suggestion.get(), lunchContext.remaining(accountId)));
+        List<ReplyButton> buttons = new ArrayList<>();
+        if (withWholeMenu) {
+            messages.addAll(lunchFormatter.menu(menu.get()));
+        } else {
+            buttons.add(new DialogCallback(DialogCallback.Action.LUNCH_MENU)
+                    .button(TelegramTexts.BUTTON_LUNCH_FULL));
+        }
+        buttons.add(mailingButton(subscriptions.enabled(accountId)));
+        // Фотографии уходят альбомом перед текстом: ссылки столовой подписаны и живут около часа.
+        return TelegramReply.withPhotos(messages, buttons, lunchFormatter.photos(suggestion.get()));
     }
 
     private static ReplyButton mailingButton(boolean enabled) {

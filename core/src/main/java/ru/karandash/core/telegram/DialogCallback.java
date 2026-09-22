@@ -42,6 +42,10 @@ record DialogCallback(Action action, String payload) {
         ACCESS_DENY("adeny"),
         ACCESS_REVOKE("arevoke"),
         ACCESS_PROMOTE("apromote"),
+        /** Показать подбор обеда и меню столовой. */
+        LUNCH_SHOW("lshow"),
+        /** Показать всё меню целиком. */
+        LUNCH_MENU("lmenu"),
         /** Включить или выключить утренний подбор обеда. */
         LUNCH_MAILING("lmail"),
         /** Администратор рассылает или удаляет запись «что нового». */

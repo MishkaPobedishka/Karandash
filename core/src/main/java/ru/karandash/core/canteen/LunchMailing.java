@@ -10,6 +10,7 @@ import ru.karandash.core.telegram.LunchReplyFormatter;
 import ru.karandash.core.telegram.TelegramNotifications;
 
 import java.time.Duration;
+import java.util.List;
 import java.util.Optional;
 
 /**
@@ -65,7 +66,8 @@ public class LunchMailing {
                 continue;
             }
             notifications.notify(account.accountId(), account.telegramId(),
-                    formatter.mailing(suggestion.get(), context.remaining(account.accountId())));
+                    formatter.mailing(suggestion.get(), context.remaining(account.accountId())),
+                    List.of(formatter.menuButton()));
             sent++;
         }
         log.info("Рассылка обеда: отправлено {} сообщений за {} мс", sent,

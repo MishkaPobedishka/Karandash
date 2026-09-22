@@ -188,6 +188,12 @@ final class TelegramTexts {
 
     static final String LUNCH_FOOTER = "Съели — пришлите фото или опишите словами, запишу в дневник.";
 
+    static final String LUNCH_MENU_TITLE = "Всё меню столовой на сегодня:";
+
+    static final String BUTTON_LUNCH_MENU = "🍽 Меню столовой";
+
+    static final String BUTTON_LUNCH_FULL = "Показать всё меню";
+
     static final String LUNCH_UNAVAILABLE =
             "Меню столовой сейчас недоступно. Попробуйте позже или опишите еду словами.";
 

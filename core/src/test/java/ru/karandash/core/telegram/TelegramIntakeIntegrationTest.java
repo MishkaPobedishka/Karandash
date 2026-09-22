@@ -34,6 +34,7 @@ import ru.karandash.contracts.ai.RecognitionItem;
 import ru.karandash.contracts.ai.RecognitionResult;
 import ru.karandash.contracts.telegram.BotNotification;
 import ru.karandash.contracts.telegram.ReplyButton;
+import ru.karandash.contracts.telegram.ReplyPhoto;
 import ru.karandash.contracts.telegram.TelegramInboundMessage;
 import ru.karandash.contracts.telegram.TelegramReply;
 import ru.karandash.contracts.telegram.TelegramUserName;
@@ -92,7 +93,8 @@ class TelegramIntakeIntegrationTest {
     /** Кусок меню столовой: по нему проверяем подбор обеда. */
     private static final CanteenMenu MENU = new CanteenMenu(List.of(new CanteenDish(
             "Горячие блюда", "Гречка с курицей", new BigDecimal("120"), new BigDecimal("250"),
-            new BigDecimal("109.5"), new BigDecimal("8"), new BigDecimal("2.5"), new BigDecimal("13.7"))));
+            new BigDecimal("109.5"), new BigDecimal("8"), new BigDecimal("2.5"), new BigDecimal("13.7"),
+            "https://canteen/grechka.jpg")));
 
     private static final RecognitionResult DUMPLING_QUESTION = new RecognitionResult(List.of(),
             List.of("Какая начинка и сколько весит один пельмень?"));
@@ -505,11 +507,37 @@ class TelegramIntakeIntegrationTest {
                 .contains("1. Сытный — 380–480 ккал, 120 ₽")
                 .contains("• Гречка с курицей, 250 г")
                 .contains("Много белка");
-        assertThat(lunch.buttons()).extracting(ReplyButton::text).containsExactly("Не присылать по утрам");
+        assertThat(lunch.buttons()).extracting(ReplyButton::text)
+                .containsExactly("Показать всё меню", "Не присылать по утрам");
+        assertThat(lunch.photos()).as("фотографии предложенных блюд идут вместе с ответом")
+                .extracting(ReplyPhoto::url).containsExactly("https://canteen/grechka.jpg");
+        assertThat(lunch.photos().getFirst().caption()).isEqualTo("Гречка с курицей — 120 ₽, 250 г, 109,5 ккал");
         assertThat(off.messages()).singleElement().asString().startsWith("Больше не присылаю подбор обеда");
         assertThat(notificationsFor(telegramId))
                 .as("отписался — утренняя рассылка его не трогает")
                 .noneMatch(text -> text.startsWith("Что сегодня взять на обед"));
+    }
+
+    @Test
+    void menuButtonShowsTheWholeCanteenMenu() {
+        long telegramId = 700_042;
+        allow(telegramId);
+        when(canteenClient.today()).thenReturn(Optional.of(MENU));
+        when(recognitionModel.adviseLunch(anyString())).thenReturn(Optional.of(new ModelLunchAdvice(
+                new LunchAdvice(List.of(new LunchOption("Сытный", List.of("Гречка с курицей"), 380, 480, 120, null))),
+                ModelUsage.unknown())));
+
+        TelegramReply help = send(TelegramInboundMessage.message(nextUpdateId(), telegramId, "/help"), null);
+        TelegramReply menu = send(TelegramInboundMessage.button(nextUpdateId(), telegramId, "lmenu:-"), null);
+
+        assertThat(help.buttons()).extracting(ReplyButton::text).contains("🍽 Меню столовой");
+        assertThat(menu.messages()).hasSize(2);
+        assertThat(menu.messages().getLast())
+                .startsWith("Всё меню столовой на сегодня:")
+                .contains("Горячие блюда:")
+                .contains("• Гречка с курицей — 120 ₽, 250 г, 109,5 ккал");
+        assertThat(menu.buttons()).as("меню уже открыто — кнопки на него больше нет")
+                .extracting(ReplyButton::text).containsExactly("Не присылать по утрам");
     }
 
     @Test

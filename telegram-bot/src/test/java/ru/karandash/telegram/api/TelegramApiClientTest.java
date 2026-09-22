@@ -5,6 +5,7 @@ import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.web.client.RestClient;
+import ru.karandash.contracts.telegram.ReplyPhoto;
 import ru.karandash.telegram.testing.FakeTelegramServer;
 
 import java.net.ServerSocket;
@@ -103,6 +104,34 @@ class TelegramApiClientTest {
 
         assertThat(telegram.sentMessages).singleElement()
                 .satisfies(message -> assertThat(message.path("text").asText()).hasSize(TelegramApiClient.MESSAGE_LIMIT));
+    }
+
+    @Test
+    void sendsOnePhotoDirectlyAndSeveralAsAlbum() {
+        client.sendPhotos(42, List.of(new ReplyPhoto("https://canteen/1.jpg", "Борщ")));
+        client.sendPhotos(42, List.of(new ReplyPhoto("https://canteen/1.jpg", "Борщ"),
+                new ReplyPhoto("https://canteen/2.jpg", null)));
+
+        assertThat(telegram.sentPhotos).singleElement().satisfies(photo -> {
+            assertThat(photo.path("photo").asText()).isEqualTo("https://canteen/1.jpg");
+            assertThat(photo.path("caption").asText()).isEqualTo("Борщ");
+        });
+        assertThat(telegram.sentAlbums).singleElement().satisfies(album -> {
+            assertThat(album.path("media")).hasSize(2);
+            assertThat(album.path("media").get(1).has("caption")).as("пустую подпись не шлём").isFalse();
+        });
+    }
+
+    @Test
+    void keepsAlbumWithinTelegramLimits() {
+        client.sendPhotos(42, java.util.stream.IntStream.range(0, 14)
+                .mapToObj(index -> new ReplyPhoto("https://canteen/" + index + ".jpg", "б".repeat(1200)))
+                .toList());
+
+        assertThat(telegram.sentAlbums).singleElement().satisfies(album -> {
+            assertThat(album.path("media")).hasSize(ReplyPhoto.MAX_IN_ALBUM);
+            assertThat(album.path("media").get(0).path("caption").asText()).hasSize(ReplyPhoto.MAX_CAPTION);
+        });
     }
 
     private static TelegramApiClient client(String baseUrl) {

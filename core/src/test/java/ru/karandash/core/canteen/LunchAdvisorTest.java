@@ -27,10 +27,11 @@ class LunchAdvisorTest {
     private static final CanteenMenu MENU = new CanteenMenu(List.of(
             new CanteenDish("Горячие блюда", "Гречка по купечески с курицей", new BigDecimal("120"),
                     new BigDecimal("250"), new BigDecimal("109.5"), new BigDecimal("8"),
-                    new BigDecimal("2.5"), new BigDecimal("13.7")),
+                    new BigDecimal("2.5"), new BigDecimal("13.7"), "https://canteen/grechka.jpg"),
             new CanteenDish("Салаты", "Салат Оливье", new BigDecimal("60"), new BigDecimal("110"),
-                    new BigDecimal("163.8"), new BigDecimal("6.3"), new BigDecimal("13.2"), new BigDecimal("4.9")),
-            new CanteenDish("Супы", "Солянка", new BigDecimal("140"), null, null, null, null, null)));
+                    new BigDecimal("163.8"), new BigDecimal("6.3"), new BigDecimal("13.2"), new BigDecimal("4.9"),
+                    null),
+            new CanteenDish("Супы", "Солянка", new BigDecimal("140"), null, null, null, null, null, null)));
 
     private static final DiaryDay EATEN = new DiaryDay(LocalDate.of(2026, 9, 22), List.of(), 380, 480);
     private static final Optional<DailyTarget> TARGET =

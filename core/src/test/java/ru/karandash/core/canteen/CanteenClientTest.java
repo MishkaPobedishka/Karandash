@@ -60,6 +60,13 @@ class CanteenClientTest {
         // Часть блюд столовая отдаёт без пищевой ценности — это нормально, их оценит модель.
         assertThat(menu.get().find("Айсберг").orElseThrow().hasNutrition()).isFalse();
         assertThat(menu.get().find("такого блюда нет")).isEmpty();
+        assertThat(olivier.photoUrl()).as("для фотографии берём полный снимок, а не миниатюру")
+                .isEqualTo("https://storage.test/products/olivier.jpg?X-Amz-Signature=full");
+        CanteenDish aisberg = menu.get().find("Айсберг").orElseThrow();
+        assertThat(aisberg.photoUrl()).as("без полного снимка годится миниатюра")
+                .isEqualTo("https://storage.test/products/thumbs/aisberg.jpg?X-Amz-Signature=thumb");
+        assertThat(menu.get().find("картофельное пюре").orElseThrow().hasPhoto())
+                .as("столовая снимает не все блюда").isFalse();
     }
 
     @Test

@@ -1,0 +1,199 @@
+{
+  "uid": "karandash-usage",
+  "title": "Karandash — Usage",
+  "tags": ["karandash"],
+  "editable": true,
+  "graphTooltip": 1,
+  "schemaVersion": 39,
+  "refresh": "5m",
+  "time": { "from": "now-30d", "to": "now" },
+  "annotations": { "list": [] },
+  "panels": [
+    {
+      "type": "stat",
+      "title": "Model silence",
+      "description": "Сколько прошло с последнего удачного вызова модели. Больше трёх часов — бот отвечает отказами, хотя сам жив.",
+      "gridPos": { "h": 4, "w": 6, "x": 0, "y": 0 },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s",
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              { "color": "green", "value": null },
+              { "color": "orange", "value": 10800 },
+              { "color": "red", "value": 43200 }
+            ]
+          }
+        }
+      },
+      "targets": [{ "expr": "karandash_model_last_success_age_seconds", "legendFormat": "silence" }]
+    },
+    {
+      "type": "stat",
+      "title": "Model credentials",
+      "description": "1 — провайдер принимает вход CLI, 0 — отклонил.",
+      "gridPos": { "h": 4, "w": 5, "x": 6, "y": 0 },
+      "fieldConfig": {
+        "defaults": {
+          "mappings": [
+            { "type": "value", "options": { "0": { "text": "rejected", "color": "red" }, "1": { "text": "ok", "color": "green" } } }
+          ],
+          "thresholds": { "mode": "absolute", "steps": [{ "color": "red", "value": null }, { "color": "green", "value": 1 }] }
+        }
+      },
+      "targets": [{ "expr": "karandash_agent_credentials_ok", "legendFormat": "login" }]
+    },
+    {
+      "type": "stat",
+      "title": "Users with access",
+      "gridPos": { "h": 4, "w": 4, "x": 11, "y": 0 },
+      "datasource": { "type": "grafana-postgresql-datasource", "uid": "karandash-db" },
+      "fieldConfig": { "defaults": { "thresholds": { "mode": "absolute", "steps": [{ "color": "blue", "value": null }] } } },
+      "targets": [
+        {
+          "refId": "A",
+          "format": "table",
+          "rawQuery": true,
+          "rawSql": "select count(*)::int as users from account where access = 'ALLOWED'",
+          "datasource": { "type": "grafana-postgresql-datasource", "uid": "karandash-db" }
+        }
+      ]
+    },
+    {
+      "type": "stat",
+      "title": "Access requests",
+      "gridPos": { "h": 4, "w": 4, "x": 15, "y": 0 },
+      "datasource": { "type": "grafana-postgresql-datasource", "uid": "karandash-db" },
+      "fieldConfig": {
+        "defaults": {
+          "thresholds": { "mode": "absolute", "steps": [{ "color": "green", "value": null }, { "color": "orange", "value": 1 }] }
+        }
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "format": "table",
+          "rawQuery": true,
+          "rawSql": "select count(*)::int as requests from account where access = 'REQUESTED'",
+          "datasource": { "type": "grafana-postgresql-datasource", "uid": "karandash-db" }
+        }
+      ]
+    },
+    {
+      "type": "stat",
+      "title": "Meals logged",
+      "gridPos": { "h": 4, "w": 5, "x": 19, "y": 0 },
+      "datasource": { "type": "grafana-postgresql-datasource", "uid": "karandash-db" },
+      "fieldConfig": { "defaults": { "thresholds": { "mode": "absolute", "steps": [{ "color": "blue", "value": null }] } } },
+      "targets": [
+        {
+          "refId": "A",
+          "format": "table",
+          "rawQuery": true,
+          "rawSql": "select count(*)::int as meals from meal where $__timeFilter(created_at)",
+          "datasource": { "type": "grafana-postgresql-datasource", "uid": "karandash-db" }
+        }
+      ]
+    },
+    {
+      "type": "table",
+      "title": "Who used it and when",
+      "description": "По каждому человеку: когда последний раз звал модель, сколько вызовов вышло и сколько еды попало в дневник за выбранный период.",
+      "gridPos": { "h": 9, "w": 24, "x": 0, "y": 4 },
+      "datasource": { "type": "grafana-postgresql-datasource", "uid": "karandash-db" },
+      "fieldConfig": { "defaults": { "custom": { "align": "auto" } } },
+      "options": { "sortBy": [{ "displayName": "Last call", "desc": true }] },
+      "targets": [
+        {
+          "refId": "A",
+          "format": "table",
+          "rawQuery": true,
+          "rawSql": "select coalesce(nullif(ti.display_name, ''), '@' || ti.username, ti.telegram_id::text) as \"User\", case a.role when 'ADMIN' then 'admin' else 'user' end as \"Role\", case a.access when 'ALLOWED' then 'allowed' when 'REQUESTED' then 'requested' when 'BLOCKED' then 'blocked' else 'no request' end as \"Access\", max(u.created_at) as \"Last call\", count(u.id) filter (where u.kind not like '%\\_FAILED')::int as \"Calls ok\", count(u.id) filter (where u.kind like '%\\_FAILED')::int as \"Calls failed\", (select count(*)::int from meal m where m.account_id = a.id and $__timeFilter(m.created_at)) as \"Meals\", ti.created_at as \"Joined\" from account a join telegram_identity ti on ti.account_id = a.id left join usage_record u on u.account_id = a.id and $__timeFilter(u.created_at) group by a.id, a.role, a.access, ti.display_name, ti.username, ti.telegram_id, ti.created_at order by 4 desc nulls last",
+          "datasource": { "type": "grafana-postgresql-datasource", "uid": "karandash-db" }
+        }
+      ]
+    },
+    {
+      "type": "barchart",
+      "title": "Requests per day, by user",
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 13 },
+      "datasource": { "type": "grafana-postgresql-datasource", "uid": "karandash-db" },
+      "fieldConfig": { "defaults": { "custom": { "stacking": { "mode": "normal" } } } },
+      "targets": [
+        {
+          "refId": "A",
+          "format": "time_series",
+          "rawQuery": true,
+          "rawSql": "select $__timeGroup(u.created_at, '1d') as time, coalesce(nullif(ti.display_name, ''), ti.telegram_id::text) as metric, count(*)::int as value from usage_record u join telegram_identity ti on ti.account_id = u.account_id where $__timeFilter(u.created_at) group by 1, 2 order by 1",
+          "datasource": { "type": "grafana-postgresql-datasource", "uid": "karandash-db" }
+        }
+      ]
+    },
+    {
+      "type": "barchart",
+      "title": "What they did",
+      "description": "Виды вызовов: распознавание текста и фото, пересчёт по замечанию, подбор обеда.",
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 13 },
+      "datasource": { "type": "grafana-postgresql-datasource", "uid": "karandash-db" },
+      "fieldConfig": { "defaults": { "custom": { "stacking": { "mode": "normal" } } } },
+      "targets": [
+        {
+          "refId": "A",
+          "format": "time_series",
+          "rawQuery": true,
+          "rawSql": "select $__timeGroup(created_at, '1d') as time, kind as metric, count(*)::int as value from usage_record where $__timeFilter(created_at) group by 1, 2 order by 1",
+          "datasource": { "type": "grafana-postgresql-datasource", "uid": "karandash-db" }
+        }
+      ]
+    },
+    {
+      "type": "timeseries",
+      "title": "Meals per day",
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 21 },
+      "datasource": { "type": "grafana-postgresql-datasource", "uid": "karandash-db" },
+      "targets": [
+        {
+          "refId": "A",
+          "format": "time_series",
+          "rawQuery": true,
+          "rawSql": "select $__timeGroup(m.created_at, '1d') as time, coalesce(nullif(ti.display_name, ''), ti.telegram_id::text) as metric, count(*)::int as value from meal m join telegram_identity ti on ti.account_id = m.account_id where $__timeFilter(m.created_at) group by 1, 2 order by 1",
+          "datasource": { "type": "grafana-postgresql-datasource", "uid": "karandash-db" }
+        }
+      ]
+    },
+    {
+      "type": "timeseries",
+      "title": "Model tokens per day",
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 21 },
+      "datasource": { "type": "grafana-postgresql-datasource", "uid": "karandash-db" },
+      "fieldConfig": { "defaults": { "unit": "short" } },
+      "targets": [
+        {
+          "refId": "A",
+          "format": "time_series",
+          "rawQuery": true,
+          "rawSql": "select $__timeGroup(created_at, '1d') as time, coalesce(sum(tokens_in), 0)::int as \"in\", coalesce(sum(tokens_out), 0)::int as \"out\" from usage_record where $__timeFilter(created_at) group by 1 order by 1",
+          "datasource": { "type": "grafana-postgresql-datasource", "uid": "karandash-db" }
+        }
+      ]
+    },
+    {
+      "type": "timeseries",
+      "title": "Model response time",
+      "description": "Среднее и худшее время вызова за день, в секундах.",
+      "gridPos": { "h": 8, "w": 24, "x": 0, "y": 29 },
+      "datasource": { "type": "grafana-postgresql-datasource", "uid": "karandash-db" },
+      "fieldConfig": { "defaults": { "unit": "s" } },
+      "targets": [
+        {
+          "refId": "A",
+          "format": "time_series",
+          "rawQuery": true,
+          "rawSql": "select $__timeGroup(created_at, '1d') as time, round(avg(latency_ms) / 1000.0, 1)::float8 as \"avg\", round(max(latency_ms) / 1000.0, 1)::float8 as \"worst\" from usage_record where $__timeFilter(created_at) group by 1 order by 1",
+          "datasource": { "type": "grafana-postgresql-datasource", "uid": "karandash-db" }
+        }
+      ]
+    }
+  ]
+}

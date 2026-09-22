@@ -19,7 +19,9 @@
             "name": "Айсберг",
             "price": 15.0,
             "weight": null,
-            "nutritionalInfo": null
+            "nutritionalInfo": null,
+            "image": "https://storage.test/products/thumbs/aisberg.jpg?X-Amz-Signature=thumb",
+            "originalImage": null
           },
           {
             "id": 169,
@@ -31,7 +33,9 @@
               "proteins": 6.3,
               "fats": 13.2,
               "carbohydrates": 4.9
-            }
+            },
+            "image": "https://storage.test/products/thumbs/olivier.jpg?X-Amz-Signature=thumb",
+            "originalImage": "https://storage.test/products/olivier.jpg?X-Amz-Signature=full"
           }
         ]
       },

@@ -31,6 +31,8 @@ public final class FakeTelegramServer implements AutoCloseable {
 
     public final List<Long> offsets = new CopyOnWriteArrayList<>();
     public final List<JsonNode> sentMessages = new CopyOnWriteArrayList<>();
+    public final List<JsonNode> sentPhotos = new CopyOnWriteArrayList<>();
+    public final List<JsonNode> sentAlbums = new CopyOnWriteArrayList<>();
     public final List<JsonNode> chatActions = new CopyOnWriteArrayList<>();
     public final List<JsonNode> answeredCallbacks = new CopyOnWriteArrayList<>();
     public final List<JsonNode> editedMarkups = new CopyOnWriteArrayList<>();
@@ -117,6 +119,14 @@ public final class FakeTelegramServer implements AutoCloseable {
             case "sendMessage" -> {
                 sentMessages.add(request);
                 respond(exchange, 200, "{\"ok\":true,\"result\":{\"message_id\":" + sentMessages.size() + "}}");
+            }
+            case "sendPhoto" -> {
+                sentPhotos.add(request);
+                respond(exchange, 200, "{\"ok\":true,\"result\":{\"message_id\":1}}");
+            }
+            case "sendMediaGroup" -> {
+                sentAlbums.add(request);
+                respond(exchange, 200, "{\"ok\":true,\"result\":[{\"message_id\":1}]}");
             }
             case "answerCallbackQuery" -> {
                 answeredCallbacks.add(request);

@@ -16,10 +16,16 @@ public record CanteenDish(
         BigDecimal kcal,
         BigDecimal proteins,
         BigDecimal fats,
-        BigDecimal carbohydrates
+        BigDecimal carbohydrates,
+        String photoUrl
 ) {
 
     public boolean hasNutrition() {
         return kcal != null;
+    }
+
+    /** Ссылка живёт около часа, поэтому годится только для немедленной отправки. */
+    public boolean hasPhoto() {
+        return photoUrl != null && !photoUrl.isBlank();
     }
 }
