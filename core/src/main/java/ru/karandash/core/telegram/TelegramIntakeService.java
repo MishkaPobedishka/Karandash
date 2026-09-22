@@ -370,7 +370,7 @@ public class TelegramIntakeService {
                     .button(TelegramTexts.BUTTON_LUNCH_FULL));
         }
         buttons.add(mailingButton(subscriptions.enabled(accountId)));
-        // Фотографии уходят альбомом перед текстом: ссылки столовой подписаны и живут около часа.
+        // Фотографии уходят альбомом следом за текстом: ссылки столовой подписаны и живут около часа.
         return TelegramReply.withPhotos(messages, buttons, lunchFormatter.photos(suggestion.get()));
     }
 

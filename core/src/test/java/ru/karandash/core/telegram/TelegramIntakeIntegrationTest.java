@@ -528,8 +528,11 @@ class TelegramIntakeIntegrationTest {
                 ModelUsage.unknown())));
 
         TelegramReply help = send(TelegramInboundMessage.message(nextUpdateId(), telegramId, "/help"), null);
+        TelegramReply lunch = send(TelegramInboundMessage.button(nextUpdateId(), telegramId, "lshow:-"), null);
         TelegramReply menu = send(TelegramInboundMessage.button(nextUpdateId(), telegramId, "lmenu:-"), null);
 
+        verify(recognitionModel, times(1)).adviseLunch(anyString());
+        assertThat(lunch.photos()).as("подбор из памяти приходит с теми же блюдами").hasSize(1);
         assertThat(help.buttons()).extracting(ReplyButton::text).contains("🍽 Меню столовой");
         assertThat(menu.messages()).hasSize(2);
         assertThat(menu.messages().getLast())

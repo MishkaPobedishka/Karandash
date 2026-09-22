@@ -155,14 +155,17 @@ public class MessageHandler {
         log.info("Апдейт {} обработан: кнопка ({} сообщ.)", update.updateId(), reply.messages().size());
     }
 
-    /** Кнопки ядро присылает к последнему сообщению ответа, фотографии — альбомом перед ним. */
+    /**
+     * Кнопки ядро присылает к последнему сообщению ответа. Фотографии уходят следом альбомом:
+     * Telegram забирает их по ссылкам сам, и ждать этого, прежде чем показать текст, незачем.
+     */
     private void send(long chatId, TelegramReply reply) {
-        sendPhotosQuietly(chatId, reply.photos());
         List<String> messages = reply.messages();
         for (int index = 0; index < messages.size(); index++) {
             boolean last = index == messages.size() - 1;
             telegram.sendMessage(chatId, messages.get(index), last ? reply.buttons() : List.of());
         }
+        sendPhotosQuietly(chatId, reply.photos());
     }
 
     private void sendPhotosQuietly(long chatId, List<ReplyPhoto> photos) {

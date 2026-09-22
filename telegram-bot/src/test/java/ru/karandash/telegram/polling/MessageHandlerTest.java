@@ -265,7 +265,7 @@ class MessageHandlerTest {
     }
 
     @Test
-    void sendsDishPhotosAsAlbumBeforeTheTextWithButtons() throws Exception {
+    void sendsDishPhotosAsAlbumAfterTheTextWithButtons() throws Exception {
         core.expect(requestTo(CORE_URL)).andRespond(withSuccess("""
                 {"duplicate":false,"messages":["Сегодня в столовой:"],
                 "buttons":[{"text":"Показать всё меню","data":"lmenu:-"}],
@@ -289,6 +289,10 @@ class MessageHandlerTest {
             assertThat(message.path("reply_markup").path("inline_keyboard").get(0).get(0).path("callback_data")
                     .asText()).isEqualTo("lmenu:-");
         });
+        assertThat(telegram.requestPaths).as("текст показываем сразу, фотографии Telegram забирает следом")
+                .filteredOn(path -> path.endsWith("/sendMessage") || path.endsWith("/sendMediaGroup"))
+                .containsExactly("/bot" + FakeTelegramServer.TOKEN + "/sendMessage",
+                        "/bot" + FakeTelegramServer.TOKEN + "/sendMediaGroup");
     }
 
     @Test

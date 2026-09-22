@@ -30,7 +30,7 @@ public record TelegramReply(
         this(duplicate, messages, buttons, false, List.of());
     }
 
-    /** Ответ с фотографиями: они уходят одним альбомом перед текстом — под альбомом кнопок не бывает. */
+    /** Ответ с фотографиями: они уходят одним альбомом следом за текстом — под альбомом кнопок не бывает. */
     public static TelegramReply withPhotos(List<String> messages, List<ReplyButton> buttons, List<ReplyPhoto> photos) {
         return new TelegramReply(false, messages, buttons, false, photos);
     }

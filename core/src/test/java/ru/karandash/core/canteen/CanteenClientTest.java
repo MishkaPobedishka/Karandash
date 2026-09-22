@@ -5,6 +5,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.Test;
 import org.springframework.http.HttpMethod;
 import org.springframework.http.MediaType;
+import org.springframework.test.web.client.ExpectedCount;
 import org.springframework.test.web.client.MockRestServiceServer;
 import org.springframework.web.client.RestClient;
 
@@ -67,6 +68,20 @@ class CanteenClientTest {
                 .isEqualTo("https://storage.test/products/thumbs/aisberg.jpg?X-Amz-Signature=thumb");
         assertThat(menu.get().find("картофельное пюре").orElseThrow().hasPhoto())
                 .as("столовая снимает не все блюда").isFalse();
+    }
+
+    @Test
+    void asksCanteenOnceAndServesTheMenuFromMemory() throws IOException {
+        RestClient.Builder builder = RestClient.builder();
+        MockRestServiceServer server = MockRestServiceServer.bindTo(builder).build();
+        server.expect(ExpectedCount.once(), requestTo(MENU_URL))
+                .andRespond(withSuccess(sample(), MediaType.APPLICATION_JSON));
+        CanteenClient client = new CanteenClient(properties, builder);
+
+        assertThat(client.today()).isPresent();
+        assertThat(client.today()).as("второй раз меню берём из памяти").isPresent();
+
+        server.verify();
     }
 
     @Test
