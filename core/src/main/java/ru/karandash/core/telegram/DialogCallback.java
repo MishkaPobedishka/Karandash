@@ -42,6 +42,8 @@ record DialogCallback(Action action, String payload) {
         ACCESS_DENY("adeny"),
         ACCESS_REVOKE("arevoke"),
         ACCESS_PROMOTE("apromote"),
+        /** Включить или выключить утренний подбор обеда. */
+        LUNCH_MAILING("lmail"),
         /** Администратор рассылает или удаляет запись «что нового». */
         CHANGELOG_SEND("clsend"),
         CHANGELOG_DROP("cldrop");

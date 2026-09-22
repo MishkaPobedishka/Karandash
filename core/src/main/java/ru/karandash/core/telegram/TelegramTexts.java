@@ -24,6 +24,7 @@ final class TelegramTexts {
 
             /profile — телосложение и цель, считаю норму калорий на день.
             /diary — записи за сегодня и сколько осталось до нормы.
+            /lunch — что взять на обед в столовой сегодня.
             /changelog — что нового в боте.
             /id — ваш номер в Telegram: он нужен администратору, чтобы открыть доступ.""";
 
@@ -178,6 +179,25 @@ final class TelegramTexts {
     static final String PROFILE_CANCELLED = "Остановились. Вернуться к расчёту — /profile.";
 
     static final String PROFILE_BUSY = "Сначала закончим с нормой калорий — ответьте на вопрос выше или нажмите «Отменить».";
+
+    // Столовая
+
+    static final String LUNCH_MAILING_TITLE = "Что сегодня взять на обед в столовой:";
+
+    static final String LUNCH_ANSWER_TITLE = "Сегодня в столовой:";
+
+    static final String LUNCH_FOOTER = "Съели — пришлите фото или опишите словами, запишу в дневник.";
+
+    static final String LUNCH_UNAVAILABLE =
+            "Меню столовой сейчас недоступно. Попробуйте позже или опишите еду словами.";
+
+    static final String LUNCH_MAILING_ON = "Буду присылать подбор обеда по будням в 10:00.";
+
+    static final String LUNCH_MAILING_OFF = "Больше не присылаю подбор обеда. Вернуть — команда /lunch.";
+
+    static final String BUTTON_LUNCH_OFF = "Не присылать по утрам";
+
+    static final String BUTTON_LUNCH_ON = "Присылать по утрам";
 
     // Что нового
 

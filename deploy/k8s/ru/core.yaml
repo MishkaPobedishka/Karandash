@@ -87,6 +87,17 @@ spec:
                   name: karandash-core
                   key: ADMIN_TELEGRAM_IDS
                   optional: true
+            # Столовая: меню берётся из API-шлюза холдинга, токен живёт в секрете.
+            - name: CANTEEN_ENABLED
+              value: "true"
+            - name: CANTEEN_CAFE
+              value: "1"
+            - name: CANTEEN_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: karandash-core
+                  key: CANTEEN_TOKEN
+                  optional: true
             - name: AI_PROVIDER
               value: agent
             - name: AGENT_BASE_URL

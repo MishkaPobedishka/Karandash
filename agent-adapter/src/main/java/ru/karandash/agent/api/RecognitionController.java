@@ -8,6 +8,8 @@ import org.springframework.web.bind.annotation.RequestPart;
 import org.springframework.web.bind.annotation.RestController;
 import org.springframework.web.multipart.MultipartFile;
 import ru.karandash.agent.recognition.RecognitionService;
+import ru.karandash.contracts.ai.AgentLunchRequest;
+import ru.karandash.contracts.ai.AgentLunchResponse;
 import ru.karandash.contracts.ai.AgentRecognitionResponse;
 import ru.karandash.contracts.ai.AgentTextRequest;
 
@@ -31,5 +33,11 @@ public class RecognitionController {
     @PostMapping(path = "/photo", consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
     AgentRecognitionResponse recognizePhoto(@RequestPart("photo") MultipartFile photo) throws IOException {
         return recognitionService.recognizePhoto(photo.getBytes());
+    }
+
+    /** Подбор обеда по меню столовой: запрос собирает ядро. */
+    @PostMapping(path = "/lunch", consumes = MediaType.APPLICATION_JSON_VALUE)
+    AgentLunchResponse adviseLunch(@RequestBody AgentLunchRequest request) {
+        return recognitionService.adviseLunch(request == null ? null : request.prompt());
     }
 }

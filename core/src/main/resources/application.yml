@@ -49,6 +49,17 @@ karandash:
   telegram:
     max-text-length: 2000
     update-retention: 48h
+  canteen:
+    # Столовая Строительного двора: меню приходит из API-шлюза холдинга.
+    enabled: ${CANTEEN_ENABLED:false}
+    base-url: ${CANTEEN_BASE_URL:https://api-gateway.prod.hr-holding.itlabs.io}
+    # 1 — ЦО в Тюмени. Список столовых — /api/v1/canteen/cafes/
+    cafe: ${CANTEEN_CAFE:1}
+    token: ${CANTEEN_TOKEN:}
+    timeout: 20s
+    # Подбор обеда уходит по будням утром.
+    cron: ${CANTEEN_CRON:0 0 10 * * MON-FRI}
+    zone: ${CANTEEN_ZONE:Europe/Moscow}
   diary:
     # День дневника считается по этому поясу, пока у аккаунта нет своего.
     zone: ${DIARY_ZONE:Asia/Yekaterinburg}

@@ -22,4 +22,13 @@ public sealed interface RecognitionTask {
             return "photo";
         }
     }
+
+    /** Подбор обеда по меню столовой: меню и рамки собирает ядро, недоверенного ввода здесь нет. */
+    record Lunch(String prompt) implements RecognitionTask {
+
+        @Override
+        public String kind() {
+            return "lunch";
+        }
+    }
 }

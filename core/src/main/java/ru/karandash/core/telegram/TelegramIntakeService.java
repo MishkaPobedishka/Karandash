@@ -7,6 +7,7 @@ import org.springframework.stereotype.Service;
 import ru.karandash.contracts.ai.ModelUsage;
 import ru.karandash.contracts.ai.RecognitionContract;
 import ru.karandash.contracts.ai.RecognitionResult;
+import ru.karandash.contracts.telegram.ReplyButton;
 import ru.karandash.contracts.telegram.TelegramInboundMessage;
 import ru.karandash.contracts.telegram.TelegramReply;
 import ru.karandash.contracts.telegram.TelegramUserName;
@@ -19,6 +20,11 @@ import ru.karandash.core.ai.AiProvider;
 import ru.karandash.core.ai.ModelRecognition;
 import ru.karandash.core.ai.ModelUnavailableException;
 import ru.karandash.core.ai.RecognitionModel;
+import ru.karandash.core.canteen.CanteenClient;
+import ru.karandash.core.canteen.CanteenMenu;
+import ru.karandash.core.canteen.LunchContext;
+import ru.karandash.core.canteen.LunchSubscriptions;
+import ru.karandash.core.canteen.LunchSuggestion;
 import ru.karandash.core.diary.DiaryService;
 import ru.karandash.core.diary.DraftSource;
 import ru.karandash.core.diary.MealDraft;
@@ -55,6 +61,10 @@ public class TelegramIntakeService {
     private final ProfileDialog profileDialog;
     private final AdminDialog adminDialog;
     private final AccessService access;
+    private final CanteenClient canteen;
+    private final LunchContext lunchContext;
+    private final LunchSubscriptions subscriptions;
+    private final LunchReplyFormatter lunchFormatter;
     private final MealDraftService drafts;
     private final DiaryService diary;
     private final ProfileService profiles;
@@ -71,6 +81,10 @@ public class TelegramIntakeService {
             ProfileDialog profileDialog,
             AdminDialog adminDialog,
             AccessService access,
+            CanteenClient canteen,
+            LunchContext lunchContext,
+            LunchSubscriptions subscriptions,
+            LunchReplyFormatter lunchFormatter,
             MealDraftService drafts,
             DiaryService diary,
             ProfileService profiles,
@@ -86,6 +100,10 @@ public class TelegramIntakeService {
         this.profileDialog = profileDialog;
         this.adminDialog = adminDialog;
         this.access = access;
+        this.canteen = canteen;
+        this.lunchContext = lunchContext;
+        this.subscriptions = subscriptions;
+        this.lunchFormatter = lunchFormatter;
         this.drafts = drafts;
         this.diary = diary;
         this.profiles = profiles;
@@ -193,6 +211,7 @@ public class TelegramIntakeService {
             case "/diary", "/дневник" -> TelegramReply.of(diaryFormatter.day(
                     diary.today(account.accountId()), profiles.dailyTarget(account.accountId())));
             case "/profile", "/профиль" -> profile(account.accountId());
+            case "/lunch", "/обед", "/столовая" -> lunch(account.accountId());
             case "/changelog" -> changelog(account, argument);
             case "/admin" -> adminOnly(account, adminDialog::panel);
             case "/users" -> adminOnly(account, () -> adminDialog.userList(account));
@@ -256,6 +275,12 @@ public class TelegramIntakeService {
                     telegramId -> adminDialog.revoke(account, telegramId));
             case ACCESS_PROMOTE -> adminOnly(account, callback,
                     telegramId -> adminDialog.promote(account, telegramId));
+            case LUNCH_MAILING -> {
+                boolean enabled = subscriptions.toggle(account.accountId());
+                yield TelegramReply.withButtons(
+                        enabled ? TelegramTexts.LUNCH_MAILING_ON : TelegramTexts.LUNCH_MAILING_OFF,
+                        List.of(mailingButton(enabled)));
+            }
             case CHANGELOG_SEND -> changelogButton(account, callback, true);
             case CHANGELOG_DROP -> changelogButton(account, callback, false);
         };
@@ -315,6 +340,27 @@ public class TelegramIntakeService {
         return callback.uuidPayload()
                 .map(id -> publish ? adminDialog.publishChangelog(id) : adminDialog.deleteChangelog(id))
                 .orElseGet(() -> TelegramReply.of(TelegramTexts.CHANGELOG_GONE));
+    }
+
+    /** Что взять на обед сегодня: меню столовой плюс остаток калорий этого человека. */
+    private TelegramReply lunch(UUID accountId) {
+        Optional<CanteenMenu> menu = canteen.today();
+        if (menu.isEmpty()) {
+            return TelegramReply.of(TelegramTexts.LUNCH_UNAVAILABLE);
+        }
+        Optional<LunchSuggestion> suggestion = lunchContext.suggest(accountId, menu.get());
+        if (suggestion.isEmpty()) {
+            return TelegramReply.of(TelegramTexts.LUNCH_UNAVAILABLE);
+        }
+        boolean enabled = subscriptions.enabled(accountId);
+        return TelegramReply.withButtons(
+                lunchFormatter.answer(suggestion.get(), lunchContext.remaining(accountId)),
+                List.of(mailingButton(enabled)));
+    }
+
+    private static ReplyButton mailingButton(boolean enabled) {
+        return new DialogCallback(DialogCallback.Action.LUNCH_MAILING)
+                .button(enabled ? TelegramTexts.BUTTON_LUNCH_OFF : TelegramTexts.BUTTON_LUNCH_ON);
     }
 
     // Норма калорий

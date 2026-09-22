@@ -35,6 +35,7 @@ karandash:
     queue-timeout: ${AGENT_QUEUE_TIMEOUT:30s}
     max-output-bytes: ${AGENT_MAX_OUTPUT_BYTES:1048576}
     max-text-length: 2000
+    max-lunch-prompt-length: 40000
     max-photo-size: 10MB
     work-dir: ${AGENT_WORK_DIR:${java.io.tmpdir}/karandash-agent}
     health-cache-ttl: 60s

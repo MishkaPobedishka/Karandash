@@ -27,6 +27,8 @@ import org.testcontainers.containers.PostgreSQLContainer;
 import org.testcontainers.containers.RabbitMQContainer;
 import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
+import ru.karandash.contracts.ai.LunchAdvice;
+import ru.karandash.contracts.ai.LunchOption;
 import ru.karandash.contracts.ai.ModelUsage;
 import ru.karandash.contracts.ai.RecognitionItem;
 import ru.karandash.contracts.ai.RecognitionResult;
@@ -35,15 +37,21 @@ import ru.karandash.contracts.telegram.ReplyButton;
 import ru.karandash.contracts.telegram.TelegramInboundMessage;
 import ru.karandash.contracts.telegram.TelegramReply;
 import ru.karandash.contracts.telegram.TelegramUserName;
+import ru.karandash.core.ai.ModelLunchAdvice;
 import ru.karandash.core.ai.ModelRecognition;
 import ru.karandash.core.ai.ModelUnavailableException;
 import ru.karandash.core.ai.RecognitionModel;
+import ru.karandash.core.canteen.CanteenClient;
+import ru.karandash.core.canteen.CanteenDish;
+import ru.karandash.core.canteen.CanteenMenu;
+import ru.karandash.core.canteen.LunchMailing;
 import ru.karandash.core.outbox.OutboxService;
 
 import java.math.BigDecimal;
 import java.nio.charset.StandardCharsets;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.UUID;
 import java.util.concurrent.atomic.AtomicLong;
 
@@ -81,6 +89,11 @@ class TelegramIntakeIntegrationTest {
             new BigDecimal("25"), new BigDecimal("32"), new BigDecimal("8"), new BigDecimal("12"),
             new BigDecimal("45"), new BigDecimal("60"), new BigDecimal("0.7"))), List.of());
 
+    /** Кусок меню столовой: по нему проверяем подбор обеда. */
+    private static final CanteenMenu MENU = new CanteenMenu(List.of(new CanteenDish(
+            "Горячие блюда", "Гречка с курицей", new BigDecimal("120"), new BigDecimal("250"),
+            new BigDecimal("109.5"), new BigDecimal("8"), new BigDecimal("2.5"), new BigDecimal("13.7"))));
+
     private static final RecognitionResult DUMPLING_QUESTION = new RecognitionResult(List.of(),
             List.of("Какая начинка и сколько весит один пельмень?"));
     private static final RecognitionResult DUMPLING = new RecognitionResult(List.of(new RecognitionItem(
@@ -114,11 +127,17 @@ class TelegramIntakeIntegrationTest {
     @MockitoBean
     RecognitionModel recognitionModel;
 
+    @MockitoBean
+    CanteenClient canteenClient;
+
+    @Autowired
+    LunchMailing lunchMailing;
+
     private final ObjectMapper objectMapper = new ObjectMapper();
 
     @BeforeEach
     void setUp() {
-        reset(recognitionModel);
+        reset(recognitionModel, canteenClient);
     }
 
     @Test
@@ -466,6 +485,49 @@ class TelegramIntakeIntegrationTest {
         assertThat(requests.buttons()).extracting(ReplyButton::text).contains("✓ Иван Петров (@vanya)");
         assertThat(jdbc.queryForObject("select display_name from telegram_identity where telegram_id = ?",
                 String.class, telegramId)).isEqualTo("Иван Петров");
+    }
+
+    @Test
+    void lunchCommandSuggestsFromTodayMenuAndMailingCanBeTurnedOff() {
+        long telegramId = 700_040;
+        allow(telegramId);
+        when(canteenClient.today()).thenReturn(Optional.of(MENU));
+        when(recognitionModel.adviseLunch(anyString())).thenReturn(Optional.of(new ModelLunchAdvice(
+                new LunchAdvice(List.of(new LunchOption("Сытный", List.of("Гречка с курицей"), 380, 480, 120,
+                        "Много белка"))), ModelUsage.unknown())));
+
+        TelegramReply lunch = send(TelegramInboundMessage.message(nextUpdateId(), telegramId, "/lunch"), null);
+        TelegramReply off = send(TelegramInboundMessage.button(nextUpdateId(), telegramId, "lmail:-"), null);
+        lunchMailing.sendDailyAdvice();
+
+        assertThat(lunch.messages()).singleElement().asString()
+                .startsWith("Сегодня в столовой:")
+                .contains("1. Сытный — 380–480 ккал, 120 ₽")
+                .contains("• Гречка с курицей, 250 г")
+                .contains("Много белка");
+        assertThat(lunch.buttons()).extracting(ReplyButton::text).containsExactly("Не присылать по утрам");
+        assertThat(off.messages()).singleElement().asString().startsWith("Больше не присылаю подбор обеда");
+        assertThat(notificationsFor(telegramId))
+                .as("отписался — утренняя рассылка его не трогает")
+                .noneMatch(text -> text.startsWith("Что сегодня взять на обед"));
+    }
+
+    @Test
+    void morningMailingReachesSubscribedUsers() {
+        long telegramId = 700_041;
+        allow(telegramId);
+        when(canteenClient.today()).thenReturn(Optional.of(MENU));
+        when(recognitionModel.adviseLunch(anyString())).thenReturn(Optional.of(new ModelLunchAdvice(
+                new LunchAdvice(List.of(new LunchOption("Лёгкий", List.of("Гречка с курицей"), 300, 380, 120, null))),
+                ModelUsage.unknown())));
+
+        lunchMailing.sendDailyAdvice();
+
+        assertThat(notificationsFor(telegramId))
+                .anyMatch(text -> text.startsWith("Что сегодня взять на обед в столовой:") && text.contains("Лёгкий"));
+        assertThat(jdbc.queryForList("""
+                select u.kind from usage_record u join telegram_identity t on t.account_id = u.account_id
+                where t.telegram_id = ?""", String.class, telegramId)).contains("LUNCH_ADVICE");
     }
 
     @Test

@@ -67,7 +67,7 @@ public final class ClaudeCli implements AgentCli {
 
     @Override
     public CliInvocation prepare(RecognitionTask task, CallDirectory directory) throws IOException {
-        Path systemPrompt = Files.writeString(directory.root().resolve("system-prompt.txt"), Prompts.SYSTEM_PROMPT);
+        Path systemPrompt = Files.writeString(directory.root().resolve("system-prompt.txt"), Prompts.systemPrompt(task));
         Path mcpConfig = Files.writeString(directory.root().resolve("mcp.json"), "{\"mcpServers\":{}}");
         List<String> command = new ArrayList<>(settings.command());
         command.addAll(List.of(
@@ -135,6 +135,9 @@ public final class ClaudeCli implements AgentCli {
                         .put("type", "text")
                         .put("text", RecognitionContract.PHOTO_REQUEST);
             }
+            case RecognitionTask.Lunch lunch -> content.addObject()
+                    .put("type", "text")
+                    .put("text", lunch.prompt());
         }
         ObjectNode line = objectMapper.createObjectNode().put("type", "user");
         line.putObject("message").put("role", "user").set("content", content);

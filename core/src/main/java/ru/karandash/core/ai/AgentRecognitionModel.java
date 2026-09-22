@@ -9,13 +9,17 @@ import org.springframework.util.LinkedMultiValueMap;
 import org.springframework.util.MultiValueMap;
 import org.springframework.web.client.RestClient;
 import org.springframework.web.client.RestClientResponseException;
+import ru.karandash.contracts.ai.AgentLunchRequest;
+import ru.karandash.contracts.ai.AgentLunchResponse;
 import ru.karandash.contracts.ai.AgentRecognitionResponse;
+import ru.karandash.contracts.ai.LunchContract;
 import ru.karandash.contracts.ai.AgentTextRequest;
 import ru.karandash.contracts.ai.ModelUsage;
 import ru.karandash.contracts.ai.RecognitionContract;
 import ru.karandash.contracts.ai.RecognitionContractException;
 import ru.karandash.contracts.ai.RecognitionResult;
 
+import java.util.Optional;
 import java.util.function.Supplier;
 
 /**
@@ -77,6 +81,36 @@ final class AgentRecognitionModel implements RecognitionModel {
                 .body(parts)
                 .retrieve()
                 .body(AgentRecognitionResponse.class));
+    }
+
+    @Override
+    public Optional<ModelLunchAdvice> adviseLunch(String prompt) {
+        if (prompt == null || prompt.isBlank()) {
+            return Optional.empty();
+        }
+        try {
+            AgentLunchResponse response = restClient.post()
+                    .uri("/internal/recognition/lunch")
+                    .contentType(MediaType.APPLICATION_JSON)
+                    .body(new AgentLunchRequest(prompt))
+                    .retrieve()
+                    .body(AgentLunchResponse.class);
+            if (response == null || response.advice() == null) {
+                throw new ModelUnavailableException("Агент-адаптер вернул пустой подбор обеда");
+            }
+            // Ответ чужой ноды перепроверяем своим же контрактом.
+            return Optional.of(new ModelLunchAdvice(LunchContract.validate(response.advice()),
+                    response.usage() == null ? ModelUsage.unknown() : response.usage()));
+        } catch (RecognitionContractException exception) {
+            throw new ModelUnavailableException(exception.getMessage(), exception);
+        } catch (RestClientResponseException exception) {
+            throw new ModelUnavailableException(
+                    "Агент-адаптер ответил " + exception.getStatusCode().value(), exception);
+        } catch (ModelUnavailableException exception) {
+            throw exception;
+        } catch (RuntimeException exception) {
+            throw new ModelUnavailableException("Не удалось вызвать агент-адаптер", exception);
+        }
     }
 
     private ModelRecognition call(Supplier<AgentRecognitionResponse> request) {

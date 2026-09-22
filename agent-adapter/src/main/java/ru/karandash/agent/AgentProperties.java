@@ -17,6 +17,8 @@ public record AgentProperties(
         Duration queueTimeout,
         int maxOutputBytes,
         int maxTextLength,
+        /** Запрос на подбор обеда — это меню целиком, поэтому лимит на порядок больше описания еды. */
+        int maxLunchPromptLength,
         DataSize maxPhotoSize,
         Path workDir,
         Duration healthCacheTtl,

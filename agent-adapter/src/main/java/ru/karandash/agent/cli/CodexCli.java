@@ -86,7 +86,7 @@ public final class CodexCli implements AgentCli {
             request = Prompts.describeText(((RecognitionTask.Text) task).description());
         }
         command.add("-");
-        byte[] prompt = (Prompts.SYSTEM_PROMPT + "\n" + request + "\n").getBytes(StandardCharsets.UTF_8);
+        byte[] prompt = (Prompts.systemPrompt(task) + "\n" + request + "\n").getBytes(StandardCharsets.UTF_8);
         return new CliInvocation(command, prompt, isolation(directory), CREDENTIAL_VARIABLES);
     }
 

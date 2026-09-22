@@ -79,7 +79,7 @@ class RecognitionServiceTest {
 
     private RecognitionService service(AgentCli cli, int maxConcurrentCalls, Duration queueTimeout) {
         AgentProperties properties = new AgentProperties("token", "claude", Duration.ofSeconds(5), maxConcurrentCalls,
-                queueTimeout, 1024 * 1024, 2000, DataSize.ofMegabytes(10), temp.resolve("calls"),
+                queueTimeout, 1024 * 1024, 2000, 40_000, DataSize.ofMegabytes(10), temp.resolve("calls"),
                 Duration.ZERO, new AgentProperties.Claude(List.of("claude"), "sonnet", null, BigDecimal.ONE),
                 new AgentProperties.Codex(List.of("codex"), null, null, null));
         return new RecognitionService(cli, new CliProcessRunner(Map.of()), new CliAuthState(), properties,

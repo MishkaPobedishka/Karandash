@@ -17,7 +17,10 @@ import ru.karandash.agent.cli.CliReply;
 import ru.karandash.agent.cli.ImageType;
 import ru.karandash.agent.cli.ProcessOutcome;
 import ru.karandash.agent.cli.RecognitionTask;
+import ru.karandash.contracts.ai.AgentLunchResponse;
 import ru.karandash.contracts.ai.AgentRecognitionResponse;
+import ru.karandash.contracts.ai.LunchAdvice;
+import ru.karandash.contracts.ai.LunchContract;
 import ru.karandash.contracts.ai.RecognitionContract;
 import ru.karandash.contracts.ai.RecognitionResult;
 
@@ -78,7 +81,30 @@ public class RecognitionService {
         return recognize(new RecognitionTask.Photo(image, type));
     }
 
+    /** Подбор обеда: меню и рамки собирает ядро, поэтому вход здесь доверенный, а вот ответ — нет. */
+    public AgentLunchResponse adviseLunch(String prompt) {
+        if (prompt == null || prompt.isBlank()) {
+            throw new InvalidInputException("Запрос на подбор обеда пустой");
+        }
+        if (prompt.length() > properties.maxLunchPromptLength()) {
+            throw new InvalidInputException("Запрос на подбор обеда длиннее "
+                    + properties.maxLunchPromptLength() + " символов");
+        }
+        CliReply reply = call(new RecognitionTask.Lunch(prompt));
+        LunchAdvice advice = parseLunch(reply.text());
+        log.info("Подбор обеда через {}: вариантов {}", cli.provider(), advice.options().size());
+        return new AgentLunchResponse(advice, reply.usage());
+    }
+
     private AgentRecognitionResponse recognize(RecognitionTask task) {
+        CliReply reply = call(task);
+        RecognitionResult result = parseResult(reply.text());
+        log.info("Распознавание {} через {}: позиций {}, вопросов {}", task.kind(), cli.provider(),
+                result.items().size(), result.questions().size());
+        return new AgentRecognitionResponse(result, reply.usage());
+    }
+
+    private CliReply call(RecognitionTask task) {
         acquirePermit();
         long startedAt = System.nanoTime();
         try (CallDirectory directory = CallDirectory.create(properties.workDir())) {
@@ -88,15 +114,13 @@ public class RecognitionService {
                     properties.timeout(), properties.maxOutputBytes());
             CliReply reply = handler.complete(outcome);
             authState.markAccepted();
-            RecognitionResult result = parseResult(reply.text());
-            log.info("Распознавание {} через {}: {} мс, позиций {}, вопросов {}", task.kind(), cli.provider(),
-                    elapsedMillis(startedAt), result.items().size(), result.questions().size());
-            return new AgentRecognitionResponse(result, reply.usage());
+            log.info("Вызов {} через {}: {} мс", task.kind(), cli.provider(), elapsedMillis(startedAt));
+            return reply;
         } catch (CliCallException exception) {
             if (exception.reason() == CliCallException.Reason.AUTH_REJECTED) {
                 authState.markRejected();
             }
-            log.warn("Распознавание {} через {} не удалось за {} мс: {} — {}", task.kind(), cli.provider(),
+            log.warn("Вызов {} через {} не удался за {} мс: {} — {}", task.kind(), cli.provider(),
                     elapsedMillis(startedAt), exception.reason(), exception.getMessage());
             throw exception;
         } catch (IOException exception) {
@@ -107,18 +131,25 @@ public class RecognitionService {
         }
     }
 
+    LunchAdvice parseLunch(String text) {
+        return LunchContract.validate(parseJson(text, LunchAdvice.class));
+    }
+
     RecognitionResult parseResult(String text) {
+        return RecognitionContract.validate(parseJson(text, RecognitionResult.class));
+    }
+
+    private <T> T parseJson(String text, Class<T> type) {
         String json = RecognitionContract.stripCodeFence(text);
         try {
-            return RecognitionContract.validate(objectMapper.readValue(json, RecognitionResult.class));
+            return objectMapper.readValue(json, type);
         } catch (JsonProcessingException exception) {
             // CLI-агенты иногда добавляют к JSON пояснения — берём объект целиком от первой до последней скобки.
             int start = json.indexOf('{');
             int end = json.lastIndexOf('}');
             if (start >= 0 && end > start) {
                 try {
-                    return RecognitionContract.validate(
-                            objectMapper.readValue(json.substring(start, end + 1), RecognitionResult.class));
+                    return objectMapper.readValue(json.substring(start, end + 1), type);
                 } catch (JsonProcessingException ignored) {
                     // ниже — общая ошибка
                 }

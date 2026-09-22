@@ -1,0 +1,147 @@
+{
+  "result": {
+    "selfService": true,
+    "delivery": true,
+    "categories": [
+      {
+        "id": 23,
+        "name": "Салаты",
+        "products": [
+          {
+            "id": 1913,
+            "name": "Салат овощной с кунжутом по-корейски",
+            "price": 55.0,
+            "weight": null,
+            "nutritionalInfo": null
+          },
+          {
+            "id": 1655,
+            "name": "Айсберг",
+            "price": 15.0,
+            "weight": null,
+            "nutritionalInfo": null
+          },
+          {
+            "id": 169,
+            "name": "Салат Оливье",
+            "price": 60.0,
+            "weight": 110.0,
+            "nutritionalInfo": {
+              "calories": 163.8,
+              "proteins": 6.3,
+              "fats": 13.2,
+              "carbohydrates": 4.9
+            }
+          }
+        ]
+      },
+      {
+        "id": 20,
+        "name": "Горячие блюда",
+        "products": [
+          {
+            "id": 693,
+            "name": "Гречка по купечески с курицей",
+            "price": 120.0,
+            "weight": 250.0,
+            "nutritionalInfo": {
+              "calories": 109.5,
+              "proteins": 8.0,
+              "fats": 2.5,
+              "carbohydrates": 13.7
+            }
+          },
+          {
+            "id": 1098,
+            "name": "Поджарка из свинины",
+            "price": 130.0,
+            "weight": 110.0,
+            "nutritionalInfo": {
+              "calories": 192.6,
+              "proteins": 25.3,
+              "fats": 9.1,
+              "carbohydrates": 2.4
+            }
+          },
+          {
+            "id": 1153,
+            "name": "Минтай жареный на кости",
+            "price": 100.0,
+            "weight": null,
+            "nutritionalInfo": null
+          }
+        ]
+      },
+      {
+        "id": 17,
+        "name": "Гарниры",
+        "products": [
+          {
+            "id": 127,
+            "name": "Картофельное пюре",
+            "price": 66.0,
+            "weight": 200.0,
+            "nutritionalInfo": {
+              "calories": 90.7,
+              "proteins": 2.0,
+              "fats": 3.1,
+              "carbohydrates": 13.6
+            }
+          },
+          {
+            "id": 1458,
+            "name": "Картофель бэби запеченный с травами",
+            "price": 80.0,
+            "weight": 200.0,
+            "nutritionalInfo": {
+              "calories": 163.1,
+              "proteins": 2.8,
+              "fats": 5.0,
+              "carbohydrates": 26.7
+            }
+          },
+          {
+            "id": 122,
+            "name": "Гречка",
+            "price": 48.0,
+            "weight": 200.0,
+            "nutritionalInfo": {
+              "calories": 218.7,
+              "proteins": 5.6,
+              "fats": 9.9,
+              "carbohydrates": 26.5
+            }
+          }
+        ]
+      },
+      {
+        "id": 3,
+        "name": "Холодные напитки",
+        "products": [
+          {
+            "id": 499,
+            "name": "Вода минеральная \"Обуховская 13\" 1,5л",
+            "price": 110.0,
+            "weight": null,
+            "nutritionalInfo": null
+          },
+          {
+            "id": 1970,
+            "name": "Сок 0,2",
+            "price": 45.0,
+            "weight": 0.2,
+            "nutritionalInfo": null
+          },
+          {
+            "id": 43,
+            "name": "Компот/морс в ас- те",
+            "price": 43.0,
+            "weight": null,
+            "nutritionalInfo": null
+          }
+        ]
+      }
+    ]
+  },
+  "success": true
+}
