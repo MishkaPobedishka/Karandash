@@ -5,6 +5,7 @@ import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.web.client.RestClient;
+import ru.karandash.contracts.telegram.ReplyButton;
 import ru.karandash.contracts.telegram.ReplyPhoto;
 import ru.karandash.telegram.testing.FakeTelegramServer;
 
@@ -131,6 +132,22 @@ class TelegramApiClientTest {
         assertThat(telegram.sentAlbums).singleElement().satisfies(album -> {
             assertThat(album.path("media")).hasSize(ReplyPhoto.MAX_IN_ALBUM);
             assertThat(album.path("media").get(0).path("caption").asText()).hasSize(ReplyPhoto.MAX_CAPTION);
+        });
+    }
+
+    @Test
+    void putsButtonsWithTheSameRowSideBySide() {
+        client.sendMessage(42, "Завтрак", List.of(
+                new ReplyButton("−1 ч", "rtime:b:-60", 1),
+                new ReplyButton("+1 ч", "rtime:b:60", 1),
+                new ReplyButton("Выключить", "rtgl:b")));
+
+        assertThat(telegram.sentMessages).singleElement().satisfies(message -> {
+            var keyboard = message.path("reply_markup").path("inline_keyboard");
+            assertThat(keyboard).hasSize(2);
+            assertThat(keyboard.get(0)).hasSize(2);
+            assertThat(keyboard.get(0).get(1).path("callback_data").asText()).isEqualTo("rtime:b:60");
+            assertThat(keyboard.get(1)).hasSize(1);
         });
     }
 

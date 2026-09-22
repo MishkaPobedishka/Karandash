@@ -10,6 +10,7 @@ import ru.karandash.contracts.telegram.ReplyPhoto;
 import java.io.IOException;
 import java.io.InputStream;
 import java.time.Duration;
+import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -176,11 +177,23 @@ public class TelegramApiClient {
         call("sendChatAction", Map.of("chat_id", chatId, "action", action), objectMapper.constructType(Boolean.class));
     }
 
-    /** Каждая кнопка — своей строкой: подписи длинные, в ряд на телефоне не помещаются. */
+    /**
+     * По кнопке на строку — подписи длинные и в ряд на телефоне не помещаются. Исключение: кнопки,
+     * которым ядро проставило один и тот же номер ряда, например «−1 ч / −10 мин / +10 мин / +1 ч».
+     */
     private static List<List<Map<String, String>>> keyboard(List<ReplyButton> buttons) {
-        return buttons == null ? List.of() : buttons.stream()
-                .map(button -> List.of(Map.of("text", button.text(), "callback_data", button.data())))
-                .toList();
+        List<List<Map<String, String>>> rows = new ArrayList<>();
+        int openRow = ReplyButton.OWN_ROW;
+        for (ReplyButton button : buttons == null ? List.<ReplyButton>of() : buttons) {
+            Map<String, String> item = Map.of("text", button.text(), "callback_data", button.data());
+            if (button.row() != ReplyButton.OWN_ROW && button.row() == openRow && !rows.isEmpty()) {
+                rows.getLast().add(item);
+                continue;
+            }
+            rows.add(new ArrayList<>(List.of(item)));
+            openRow = button.row();
+        }
+        return rows;
     }
 
     private <T> T call(String method, Object body, JavaType resultType) {

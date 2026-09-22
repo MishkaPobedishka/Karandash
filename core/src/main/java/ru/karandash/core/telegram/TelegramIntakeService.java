@@ -30,6 +30,7 @@ import ru.karandash.core.diary.DraftSource;
 import ru.karandash.core.diary.MealDraft;
 import ru.karandash.core.diary.MealDraftService;
 import ru.karandash.core.profile.ProfileService;
+import ru.karandash.core.reminder.ReminderType;
 import ru.karandash.core.profile.ProfileSetup;
 import ru.karandash.core.usage.UsageRecorder;
 
@@ -66,6 +67,7 @@ public class TelegramIntakeService {
     private final LunchContext lunchContext;
     private final LunchSubscriptions subscriptions;
     private final LunchReplyFormatter lunchFormatter;
+    private final ReminderDialog reminderDialog;
     private final MealDraftService drafts;
     private final DiaryService diary;
     private final ProfileService profiles;
@@ -86,6 +88,7 @@ public class TelegramIntakeService {
             LunchContext lunchContext,
             LunchSubscriptions subscriptions,
             LunchReplyFormatter lunchFormatter,
+            ReminderDialog reminderDialog,
             MealDraftService drafts,
             DiaryService diary,
             ProfileService profiles,
@@ -105,6 +108,7 @@ public class TelegramIntakeService {
         this.lunchContext = lunchContext;
         this.subscriptions = subscriptions;
         this.lunchFormatter = lunchFormatter;
+        this.reminderDialog = reminderDialog;
         this.drafts = drafts;
         this.diary = diary;
         this.profiles = profiles;
@@ -205,16 +209,17 @@ public class TelegramIntakeService {
         }
         String argument = parts.length > 1 ? parts[1].strip() : "";
         return switch (command) {
-            case "/start" -> TelegramReply.withButtons(
-                    withAdminHint(account, TelegramTexts.GREETING), List.of(lunchFormatter.menuButton()));
-            case "/help" -> TelegramReply.withButtons(
-                    withAdminHint(account, TelegramTexts.HELP), List.of(lunchFormatter.menuButton()));
+            case "/start" -> TelegramReply.withButtons(withAdminHint(account, TelegramTexts.GREETING),
+                    List.of(lunchFormatter.menuButton(), reminderDialog.settingsButton()));
+            case "/help" -> TelegramReply.withButtons(withAdminHint(account, TelegramTexts.HELP),
+                    List.of(lunchFormatter.menuButton(), reminderDialog.settingsButton()));
             case "/id", "/whoami" -> TelegramReply.of(
                     TelegramTexts.ACCESS_MY_NUMBER.formatted(account.telegramId()));
             case "/diary", "/дневник" -> TelegramReply.of(diaryFormatter.day(
                     diary.today(account.accountId()), profiles.dailyTarget(account.accountId())));
             case "/profile", "/профиль" -> profile(account.accountId());
             case "/lunch", "/обед", "/столовая" -> lunch(account.accountId(), false);
+            case "/reminders", "/напоминания" -> reminderDialog.menu(account.accountId());
             case "/changelog" -> changelog(account, argument);
             case "/admin" -> adminOnly(account, adminDialog::panel);
             case "/users" -> adminOnly(account, () -> adminDialog.userList(account));
@@ -286,9 +291,36 @@ public class TelegramIntakeService {
                         enabled ? TelegramTexts.LUNCH_MAILING_ON : TelegramTexts.LUNCH_MAILING_OFF,
                         List.of(mailingButton(enabled)));
             }
+            case REMINDERS -> reminderDialog.menu(account.accountId());
+            case REMINDER_MEAL -> reminderButton(account.accountId(), callback.payload(),
+                    type -> reminderDialog.meal(account.accountId(), type));
+            case REMINDER_TOGGLE -> reminderButton(account.accountId(), callback.payload(),
+                    type -> reminderDialog.toggle(account.accountId(), type));
+            case REMINDER_SHIFT -> reminderShift(account.accountId(), callback);
+            case REMINDER_ZONE -> reminderDialog.zones(account.accountId());
+            case REMINDER_ZONE_SET -> reminderDialog.setZone(account.accountId(), callback.payload());
             case CHANGELOG_SEND -> changelogButton(account, callback, true);
             case CHANGELOG_DROP -> changelogButton(account, callback, false);
         };
+    }
+
+    /** Кнопка называет приём пищи коротким кодом: чего не знаем — показываем список заново. */
+    private TelegramReply reminderButton(UUID accountId, String code, Function<ReminderType, TelegramReply> action) {
+        return ReminderType.byCode(code).map(action).orElseGet(() -> reminderDialog.menu(accountId));
+    }
+
+    private TelegramReply reminderShift(UUID accountId, DialogCallback callback) {
+        return callback.pairPayload()
+                .flatMap(pair -> ReminderType.byCode(pair[0]).map(type -> shift(accountId, type, pair[1])))
+                .orElseGet(() -> reminderDialog.menu(accountId));
+    }
+
+    private TelegramReply shift(UUID accountId, ReminderType type, String minutes) {
+        try {
+            return reminderDialog.shift(accountId, type, Integer.parseInt(minutes));
+        } catch (NumberFormatException exception) {
+            return reminderDialog.meal(accountId, type);
+        }
     }
 
     private TelegramReply mealButton(UUID accountId, DialogCallback callback) {

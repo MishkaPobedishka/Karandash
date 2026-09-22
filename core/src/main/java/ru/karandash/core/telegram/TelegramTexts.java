@@ -25,6 +25,7 @@ final class TelegramTexts {
             /profile — телосложение и цель, считаю норму калорий на день.
             /diary — записи за сегодня и сколько осталось до нормы.
             /lunch — что взять на обед в столовой сегодня.
+            /reminders — напоминания про завтрак, обед и ужин.
             /changelog — что нового в боте.
             /id — ваш номер в Telegram: он нужен администратору, чтобы открыть доступ.""";
 
@@ -204,6 +205,32 @@ final class TelegramTexts {
     static final String BUTTON_LUNCH_OFF = "Не присылать по утрам";
 
     static final String BUTTON_LUNCH_ON = "Присылать по утрам";
+
+    // Напоминания про еду
+
+    static final String REMINDERS_TITLE = "⏰ Напоминания про еду";
+
+    static final String REMINDERS_ZONE = "Часовой пояс: %s, сейчас там %s.";
+
+    static final String REMINDER_OFF_MARK = "— выключено";
+
+    static final String REMINDER_CARD_ON = "Напомню в %s.";
+
+    static final String REMINDER_CARD_OFF = "Напоминание выключено.";
+
+    static final String REMINDER_ZONE_PICK = "Сейчас у вас %s. Выберите свой город:";
+
+    static final String REMINDER_DUE = "%s Пора записать %s. Пришлите фото или опишите словами — посчитаю.";
+
+    static final String BUTTON_REMINDERS = "⏰ Напоминания";
+
+    static final String BUTTON_REMINDER_ZONE = "Часовой пояс: %s";
+
+    static final String BUTTON_REMINDER_OFF = "Выключить";
+
+    static final String BUTTON_REMINDER_ON = "Включить";
+
+    static final String BUTTON_BACK = "← Назад";
 
     // Что нового
 

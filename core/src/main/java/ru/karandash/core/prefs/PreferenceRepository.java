@@ -1,4 +1,4 @@
-package ru.karandash.core.canteen;
+package ru.karandash.core.prefs;
 
 import org.springframework.data.jpa.repository.JpaRepository;
 

@@ -13,6 +13,7 @@ resources:
   - namespace.yaml
   # Нода РФ: персональные данные и всё, что с ними работает.
   - ru/postgres.yaml
+  - ru/postgres-exporter.yaml
   - ru/core.yaml
   # RabbitMQ свой не ставим: общий брокер Дымохода (namespace chimney), отдельный vhost karandash.
   # Зарубежная нода: сервисы без состояния, без доступа к базе.

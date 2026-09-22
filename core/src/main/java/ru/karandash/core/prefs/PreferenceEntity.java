@@ -1,4 +1,4 @@
-package ru.karandash.core.canteen;
+package ru.karandash.core.prefs;
 
 import jakarta.persistence.Column;
 import jakarta.persistence.Entity;

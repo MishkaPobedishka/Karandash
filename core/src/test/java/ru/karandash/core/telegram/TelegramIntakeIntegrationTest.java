@@ -46,6 +46,10 @@ import ru.karandash.core.canteen.CanteenClient;
 import ru.karandash.core.canteen.CanteenDish;
 import ru.karandash.core.canteen.CanteenMenu;
 import ru.karandash.core.canteen.LunchMailing;
+import ru.karandash.core.reminder.Reminder;
+import ru.karandash.core.reminder.ReminderMailing;
+import ru.karandash.core.reminder.ReminderService;
+import ru.karandash.core.reminder.ReminderType;
 import ru.karandash.core.outbox.OutboxService;
 
 import java.math.BigDecimal;
@@ -134,6 +138,12 @@ class TelegramIntakeIntegrationTest {
 
     @Autowired
     LunchMailing lunchMailing;
+
+    @Autowired
+    ReminderService reminderService;
+
+    @Autowired
+    ReminderMailing reminderMailing;
 
     private final ObjectMapper objectMapper = new ObjectMapper();
 
@@ -544,6 +554,69 @@ class TelegramIntakeIntegrationTest {
     }
 
     @Test
+    void remindersMenuSwitchesInPlaceAndKeepsUserChoices() {
+        long telegramId = 700_050;
+        allow(telegramId);
+
+        TelegramReply menu = send(TelegramInboundMessage.message(nextUpdateId(), telegramId, "/reminders"), null);
+        TelegramReply card = send(TelegramInboundMessage.button(nextUpdateId(), telegramId, "rmeal:b"), null);
+        TelegramReply earlier = send(TelegramInboundMessage.button(nextUpdateId(), telegramId, "rtime:b:-60"), null);
+        TelegramReply off = send(TelegramInboundMessage.button(nextUpdateId(), telegramId, "rtgl:b"), null);
+        TelegramReply zones = send(TelegramInboundMessage.button(nextUpdateId(), telegramId, "rzone:-"), null);
+        TelegramReply moscow = send(TelegramInboundMessage.button(nextUpdateId(), telegramId, "rzset:msk"), null);
+
+        assertThat(menu.replaceMessage()).as("напоминания живут в одном сообщении").isTrue();
+        assertThat(menu.messages()).singleElement().asString()
+                .startsWith("⏰ Напоминания про еду")
+                .contains("🍳 Завтрак — 08:30")
+                .contains("🍲 Обед — 12:00")
+                .contains("🍽 Ужин — 20:00")
+                .contains("Часовой пояс: Тюмень");
+        assertThat(menu.buttons()).extracting(ReplyButton::data)
+                .containsExactly("rmeal:b", "rmeal:l", "rmeal:d", "rzone:-");
+        assertThat(card.messages()).singleElement().asString().contains("Напомню в 08:30");
+        assertThat(card.buttons()).extracting(ReplyButton::text)
+                .containsExactly("−1 ч", "−10 мин", "+10 мин", "+1 ч", "Выключить", "← Назад");
+        assertThat(card.buttons()).extracting(ReplyButton::row)
+                .as("кнопки сдвига стоят в один ряд")
+                .containsExactly(1, 1, 1, 1, 0, 0);
+        assertThat(earlier.messages()).singleElement().asString().contains("Напомню в 07:30");
+        assertThat(off.messages()).singleElement().asString().contains("Напоминание выключено");
+        assertThat(zones.buttons()).extracting(ReplyButton::text)
+                .anyMatch(text -> text.startsWith("✅ Тюмень"));
+        assertThat(moscow.messages()).singleElement().asString().contains("Часовой пояс: Москва");
+        assertThat(reminderService.settings(accountOf(telegramId)))
+                .filteredOn(reminder -> reminder.type() == ReminderType.BREAKFAST)
+                .singleElement()
+                .satisfies(reminder -> {
+                    assertThat(reminder.at()).isEqualTo(java.time.LocalTime.of(7, 30));
+                    assertThat(reminder.enabled()).isFalse();
+                });
+    }
+
+    @Test
+    void reminderComesOnceWhenItsTimeAndNotAfterTheMealIsWritten() {
+        long telegramId = 700_051;
+        allow(telegramId);
+        UUID accountId = accountOf(telegramId);
+        // Ставим ужин на минуту назад по часовому поясу человека: напоминание должно уйти прямо сейчас.
+        java.time.LocalTime now = java.time.ZonedDateTime.now(reminderService.zone(accountId)).toLocalTime();
+        java.time.LocalTime target = now.minusMinutes(1);
+        reminderService.shift(accountId, ReminderType.DINNER,
+                (int) java.time.Duration.between(ReminderType.DINNER.defaultTime(), target).toMinutes());
+        reminderService.toggle(accountId, ReminderType.BREAKFAST);
+        reminderService.toggle(accountId, ReminderType.LUNCH);
+
+        reminderMailing.sendDueReminders();
+        reminderMailing.sendDueReminders();
+
+        assertThat(notificationsFor(telegramId))
+                .filteredOn(text -> text.contains("Пора записать ужин"))
+                .as("за день напоминаем один раз")
+                .hasSize(1);
+    }
+
+    @Test
     void morningMailingReachesSubscribedUsers() {
         long telegramId = 700_041;
         allow(telegramId);
@@ -651,6 +724,11 @@ class TelegramIntakeIntegrationTest {
     }
 
     /** Что ядро отправило человеку: события остаются в outbox и после публикации. */
+    private UUID accountOf(long telegramId) {
+        return jdbc.queryForObject("select account_id from telegram_identity where telegram_id = ?",
+                UUID.class, telegramId);
+    }
+
     private List<String> notificationsFor(long telegramId) {
         return jdbc.queryForList("""
                 select payload ->> 'text' from outbox_event

@@ -2,6 +2,7 @@ package ru.karandash.core.canteen;
 
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import ru.karandash.core.prefs.Preferences;
 
 import java.util.UUID;
 
@@ -16,17 +17,15 @@ public class LunchSubscriptions {
     private static final String ON = "on";
     private static final String OFF = "off";
 
-    private final PreferenceRepository preferences;
+    private final Preferences preferences;
 
-    public LunchSubscriptions(PreferenceRepository preferences) {
+    public LunchSubscriptions(Preferences preferences) {
         this.preferences = preferences;
     }
 
     @Transactional(readOnly = true)
     public boolean enabled(UUID accountId) {
-        return preferences.findByAccountIdAndType(accountId, TYPE)
-                .map(preference -> ON.equals(preference.getValue()))
-                .orElse(true);
+        return preferences.find(accountId, TYPE).map(ON::equals).orElse(true);
     }
 
     @Transactional
@@ -38,12 +37,6 @@ public class LunchSubscriptions {
 
     @Transactional
     public void set(UUID accountId, boolean enabled) {
-        String value = enabled ? ON : OFF;
-        preferences.findByAccountIdAndType(accountId, TYPE).ifPresentOrElse(
-                preference -> {
-                    preference.setValue(value);
-                    preferences.saveAndFlush(preference);
-                },
-                () -> preferences.saveAndFlush(new PreferenceEntity(accountId, TYPE, value)));
+        preferences.set(accountId, TYPE, enabled ? ON : OFF);
     }
 }

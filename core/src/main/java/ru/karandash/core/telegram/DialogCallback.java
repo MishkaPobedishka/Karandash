@@ -48,6 +48,13 @@ record DialogCallback(Action action, String payload) {
         LUNCH_MENU("lmenu"),
         /** Включить или выключить утренний подбор обеда. */
         LUNCH_MAILING("lmail"),
+        /** Напоминания про еду: список, карточка приёма пищи, сдвиг времени, выключатель, часовой пояс. */
+        REMINDERS("rmenu"),
+        REMINDER_MEAL("rmeal"),
+        REMINDER_SHIFT("rtime"),
+        REMINDER_TOGGLE("rtgl"),
+        REMINDER_ZONE("rzone"),
+        REMINDER_ZONE_SET("rzset"),
         /** Администратор рассылает или удаляет запись «что нового». */
         CHANGELOG_SEND("clsend"),
         CHANGELOG_DROP("cldrop");
@@ -70,6 +77,14 @@ record DialogCallback(Action action, String payload) {
             }
             return Optional.empty();
         }
+    }
+
+    /** Нагрузка вида «l:60» — приём пищи и сдвиг: двоеточий в коде больше одного не бывает. */
+    Optional<String[]> pairPayload() {
+        int separator = payload.indexOf(':');
+        return separator <= 0 || separator == payload.length() - 1
+                ? Optional.empty()
+                : Optional.of(new String[]{payload.substring(0, separator), payload.substring(separator + 1)});
     }
 
     DialogCallback(Action action, UUID payload) {
