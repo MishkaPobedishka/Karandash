@@ -82,6 +82,8 @@ public final class CodexCli implements AgentCli {
             Files.write(image, photo.bytes());
             command.addAll(List.of("--image", image.toString()));
             request = RecognitionContract.PHOTO_REQUEST;
+        } else if (task instanceof RecognitionTask.Lunch lunch) {
+            request = lunch.prompt();
         } else {
             request = Prompts.describeText(((RecognitionTask.Text) task).description());
         }

@@ -91,6 +91,20 @@ class ClaudeCliTest {
     }
 
     @Test
+    void lunchTaskCarriesItsOwnInstructionsAndMenu() throws Exception {
+        try (CallDirectory directory = CallDirectory.create(temp)) {
+            CliInvocation invocation = cli.prepare(
+                    new RecognitionTask.Lunch("Меню столовой на сегодня:\n- Солянка, 140 ₽"), directory);
+
+            assertThat(Files.readString(directory.root().resolve("system-prompt.txt")))
+                    .contains("подбираешь обед")
+                    .doesNotContain("оцениваешь состав обычной еды");
+            assertThat(objectMapper.readTree(new String(invocation.stdin(), StandardCharsets.UTF_8))
+                    .at("/message/content/0/text").asText()).contains("Солянка, 140 ₽");
+        }
+    }
+
+    @Test
     void parsesSuccessfulRun() {
         CliOutputHandler handler = cli.newOutputHandler();
         handler.onLine("{\"type\":\"system\",\"subtype\":\"init\",\"tools\":[],\"mcp_servers\":[],\"model\":\"claude-sonnet-5\"}");

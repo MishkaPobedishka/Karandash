@@ -52,6 +52,21 @@ class CodexCliTest {
     }
 
     @Test
+    void lunchTaskCarriesItsOwnInstructionsAndMenu() throws Exception {
+        try (CallDirectory directory = CallDirectory.create(temp)) {
+            CliInvocation invocation = cli.prepare(
+                    new RecognitionTask.Lunch("Меню столовой на сегодня:\n- Солянка, 140 ₽"), directory);
+
+            String stdin = new String(invocation.stdin(), StandardCharsets.UTF_8);
+            assertThat(stdin)
+                    .contains("подбираешь обед")
+                    .contains("Солянка, 140 ₽")
+                    .doesNotContain("оцениваешь состав обычной еды");
+            assertThat(invocation.command()).doesNotContain("--image");
+        }
+    }
+
+    @Test
     void photoIsTemporaryFileInsideCallDirectory() throws Exception {
         Path image;
         try (CallDirectory directory = CallDirectory.create(temp.resolve("calls"))) {
