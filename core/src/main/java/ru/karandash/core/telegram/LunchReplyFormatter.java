@@ -62,8 +62,10 @@ public class LunchReplyFormatter {
             if (dish.weightGrams() != null) {
                 piece.append(", ").append(number(dish.weightGrams())).append(" г");
             }
-            if (dish.hasNutrition()) {
-                piece.append(", ").append(number(dish.kcal())).append(" ккал");
+            if (dish.hasPortionNutrition()) {
+                piece.append(", ").append(number(dish.kcalPerPortion())).append(" ккал");
+            } else if (dish.hasNutrition()) {
+                piece.append(", ").append(number(dish.kcal())).append(" ккал/100 г");
             }
             if (text.length() + piece.length() > TELEGRAM_MESSAGE_LIMIT) {
                 messages.add(text.toString());
@@ -105,8 +107,10 @@ public class LunchReplyFormatter {
         if (dish.weightGrams() != null) {
             text.append(", ").append(number(dish.weightGrams())).append(" г");
         }
-        if (dish.hasNutrition()) {
-            text.append(", ").append(number(dish.kcal())).append(" ккал");
+        if (dish.hasPortionNutrition()) {
+            text.append(", ").append(number(dish.kcalPerPortion())).append(" ккал");
+        } else if (dish.hasNutrition()) {
+            text.append(", ").append(number(dish.kcal())).append(" ккал/100 г");
         }
         return text.toString();
     }

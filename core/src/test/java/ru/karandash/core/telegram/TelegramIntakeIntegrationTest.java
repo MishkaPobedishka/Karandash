@@ -523,7 +523,7 @@ class TelegramIntakeIntegrationTest {
                 .containsExactly("Показать всё меню", "Не присылать по утрам");
         assertThat(lunch.photos()).as("фотографии предложенных блюд идут вместе с ответом")
                 .extracting(ReplyPhoto::url).containsExactly("https://canteen/grechka.jpg");
-        assertThat(lunch.photos().getFirst().caption()).isEqualTo("Гречка с курицей — 120 ₽, 250 г, 109,5 ккал");
+        assertThat(lunch.photos().getFirst().caption()).isEqualTo("Гречка с курицей — 120 ₽, 250 г, 273,8 ккал");
         assertThat(off.messages()).singleElement().asString().startsWith("Больше не присылаю подбор обеда");
         assertThat(notificationsFor(telegramId))
                 .as("отписался — утренняя рассылка его не трогает")
@@ -592,7 +592,7 @@ class TelegramIntakeIntegrationTest {
         assertThat(context.getValue())
                 .as("модель видит сегодняшнее меню и берёт из него вес и калорийность")
                 .contains("Сегодняшнее меню столовой")
-                .contains("Гречка с курицей, 250 г, 109.5 ккал")
+                .contains("Гречка с курицей, 250 г, 273.8 ккал в порции")
                 .contains("бери её вес и пищевую ценность оттуда");
     }
 
@@ -654,7 +654,7 @@ class TelegramIntakeIntegrationTest {
         assertThat(menu.messages().getLast())
                 .startsWith("Всё меню столовой на сегодня:")
                 .contains("Горячие блюда:")
-                .contains("• Гречка с курицей — 120 ₽, 250 г, 109,5 ккал");
+                .contains("• Гречка с курицей — 120 ₽, 250 г, 273,8 ккал");
         assertThat(menu.buttons()).as("меню уже открыто — кнопки на него больше нет")
                 .extracting(ReplyButton::text).containsExactly("Не присылать по утрам");
         assertThat(menu.photos()).as("к списку всего меню фотографии не прикладываем").isEmpty();

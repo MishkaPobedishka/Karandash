@@ -47,7 +47,7 @@ class LunchAdvisorTest {
         Optional<LunchSuggestion> suggestion = advisor.advise(MENU, EATEN, TARGET);
 
         assertThat(prompt.get())
-                .contains("Гречка по купечески с курицей, 250 г, 120 ₽, 109,5 ккал")
+                .contains("Гречка по купечески с курицей, 250 г, 120 ₽, 273,8 ккал в порции")
                 .contains("Солянка, 140 ₽")
                 .contains("цель — сбросить вес, дневная норма 2216–2449 ккал")
                 .contains("Сегодня уже съедено 380–480 ккал, до нормы осталось 1736–2069 ккал");

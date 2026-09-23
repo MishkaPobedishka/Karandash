@@ -38,11 +38,13 @@ public class CanteenHints {
             if (dish.weightGrams() != null) {
                 line.append(", ").append(number(dish.weightGrams())).append(" г");
             }
-            if (dish.hasNutrition()) {
-                line.append(", ").append(number(dish.kcal())).append(" ккал")
-                        .append(" (Б ").append(number(dish.proteins()))
-                        .append(" Ж ").append(number(dish.fats()))
-                        .append(" У ").append(number(dish.carbohydrates())).append(")");
+            if (dish.hasPortionNutrition()) {
+                line.append(", ").append(number(dish.kcalPerPortion())).append(" ккал в порции")
+                        .append(" (Б ").append(number(dish.proteinsPerPortion()))
+                        .append(" Ж ").append(number(dish.fatsPerPortion()))
+                        .append(" У ").append(number(dish.carbohydratesPerPortion())).append(")");
+            } else if (dish.hasNutrition()) {
+                line.append(", ").append(number(dish.kcal())).append(" ккал на 100 г");
             }
             lines.add(line.toString());
         }
