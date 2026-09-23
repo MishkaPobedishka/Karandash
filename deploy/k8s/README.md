@@ -185,11 +185,28 @@ kubectl -n karandash exec -it statefulset/postgres -- psql -U karandash -d postg
 pg_restore -h postgres -U karandash -d restore_check --no-owner /backups/karandash_<метка>.dump
 ```
 
-**Копия уезжает с ноды, только если задан ключ.** Пока секрет `karandash-backup` пуст, а `REMOTE_HOST`
-в манифесте не заполнен, копии лежат на том же диске, что и база: это спасает от неудачной миграции
-и случайного удаления, но не от потери диска. Чтобы копии уходили на сервер резервных копий,
-положите приватный ключ в секрет `karandash-backup` (ключ `backup_key`), а в `ru/backup.yaml`
-пропишите `REMOTE_HOST` и `REMOTE_DIR`. Сервер копий должен быть в РФ: в дампе персональные данные.
+### Куда уезжают копии
+
+Общее хранилище кластера — MinIO в пространстве `backups` на ноде в Амстердаме
+(`deploy/k8s/shared/backups-minio.yaml`, применяется отдельно от kustomize). Бакеты по сервисам:
+`karandash`, `chimney`, `tracker`; хранилище само удаляет копии старше 30 дней. У каждого сервиса
+свой пользователь с доступом только к своему бакету.
+
+Все базы кластера стоят на `pythagoras`, поэтому копии кладём на другую ноду: падение диска с базой
+больше не уносит копии вместе с ней. **За границу уезжает только шифротекст:** дамп шифруется
+`openssl aes-256-cbc` ключом из секрета `karandash-backup` (`encryption_pass`), ключ остаётся в РФ.
+Без этого ключа копия бесполезна — храните его копию вне кластера.
+
+Локальная копия на томе рядом с базой тоже остаётся (14 дней): с ней восстановление быстрее.
+
+Восстановление из S3 — то же самое, только сначала скачать и расшифровать:
+
+```sh
+mc alias set store "$S3_ENDPOINT" "$S3_ACCESS_KEY" "$S3_SECRET_KEY"
+mc cp store/karandash/karandash_<метка>.dump.enc /tmp/backup.enc
+openssl enc -d -aes-256-cbc -pbkdf2 -iter 200000 -in /tmp/backup.enc -out /tmp/backup.dump   -pass file:/keys/encryption_pass
+pg_restore -h postgres -U karandash -d restore_check --no-owner /tmp/backup.dump
+```
 
 ## Сетевые политики
 

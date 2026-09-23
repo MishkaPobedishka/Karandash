@@ -1,6 +1,8 @@
-# Ночная копия базы Карандаша. Только нода РФ: в дампе те же персональные данные, что и в базе.
-# Копия кладётся на том рядом, а если дан ключ — уезжает ещё и на сервер резервных копий.
-# О каждом запуске CronJob сообщает ядру: из этого получаются метрики и алерт «копии давно не было».
+# Ночная копия базы Карандаша. Дамп снимается на ноде РФ, шифруется и уезжает в общее S3 кластера
+# (MinIO на ноде в Амстердаме, см. deploy/k8s/shared/backups-minio.yaml): падение диска с базой
+# больше не уносит копии вместе с ней. За границу уходит только шифротекст — ключ остаётся в РФ.
+# Локальная копия тоже остаётся: с ней восстановление быстрее, чем тянуть из S3.
+# О каждом запуске CronJob сообщает ядру: из этого получаются метрики, дашборд Backups и алерты.
 apiVersion: v1
 kind: PersistentVolumeClaim
 metadata:
@@ -37,7 +39,7 @@ spec:
           enableServiceLinks: false
           containers:
             - name: backup
-              image: postgres:17-alpine
+              image: karandash-backup
               env:
                 - name: PGPASSWORD
                   valueFrom:
@@ -51,11 +53,27 @@ spec:
                       key: CORE_SERVICE_TOKEN
                 - name: KEEP_DAYS
                   value: "14"
-                # Куда увезти копию. Пусто — копия остаётся только на томе рядом с базой.
-                - name: REMOTE_HOST
-                  value: ""
-                - name: REMOTE_DIR
-                  value: "/backups/karandash"
+                # Общее хранилище копий кластера. Секрет создаётся при настройке MinIO.
+                - name: S3_ENDPOINT
+                  valueFrom:
+                    secretKeyRef:
+                      name: karandash-backup-s3
+                      key: S3_ENDPOINT
+                - name: S3_BUCKET
+                  valueFrom:
+                    secretKeyRef:
+                      name: karandash-backup-s3
+                      key: S3_BUCKET
+                - name: S3_ACCESS_KEY
+                  valueFrom:
+                    secretKeyRef:
+                      name: karandash-backup-s3
+                      key: S3_ACCESS_KEY
+                - name: S3_SECRET_KEY
+                  valueFrom:
+                    secretKeyRef:
+                      name: karandash-backup-s3
+                      key: S3_SECRET_KEY
               command: ["/bin/sh", "-c"]
               args:
                 - |
@@ -88,24 +106,29 @@ spec:
                     fi
                   fi
 
-                  if [ "$STATUS" = ok ] && [ -n "${REMOTE_HOST}" ] && [ -f /keys/backup_key ]; then
-                    echo "==> Отправляем на ${REMOTE_HOST}"
-                    apk add --no-cache openssh-client > /dev/null 2>&1
-                    install -m600 /keys/backup_key /tmp/backup_key
-                    if ssh -o StrictHostKeyChecking=no -i /tmp/backup_key "$REMOTE_HOST" \
-                          "mkdir -p ${REMOTE_DIR}" \
-                       && scp -o StrictHostKeyChecking=no -i /tmp/backup_key "$FILE" \
-                          "${REMOTE_HOST}:${REMOTE_DIR}/karandash_${STAMP}.dump"; then
-                      ssh -o StrictHostKeyChecking=no -i /tmp/backup_key "$REMOTE_HOST" \
-                        "find ${REMOTE_DIR} -name 'karandash_*.dump' -mtime +${KEEP_DAYS} -delete" || true
-                    else
-                      MESSAGE="копия снята, но не уехала на ${REMOTE_HOST}"
-                      echo "$MESSAGE"
+                  # За границу уезжает только шифротекст: ключ лежит в секрете на ноде РФ.
+                  if [ "$STATUS" = ok ]; then
+                    echo "==> Шифруем"
+                    if ! openssl enc -aes-256-cbc -pbkdf2 -iter 200000 -salt \
+                           -in "$FILE" -out "${FILE}.enc" -pass file:/keys/encryption_pass; then
+                      STATUS=fail
+                      MESSAGE="не удалось зашифровать дамп"
                     fi
-                    rm -f /tmp/backup_key
                   fi
 
-                  echo "==> Убираем старые копии"
+                  if [ "$STATUS" = ok ]; then
+                    echo "==> Отправляем в S3"
+                    if mc alias set store "$S3_ENDPOINT" "$S3_ACCESS_KEY" "$S3_SECRET_KEY" > /dev/null \
+                       && mc cp "${FILE}.enc" "store/${S3_BUCKET}/karandash_${STAMP}.dump.enc" > /dev/null; then
+                      echo "==> Копия в S3: karandash_${STAMP}.dump.enc"
+                    else
+                      STATUS=fail
+                      MESSAGE="копия снята, но не уехала в S3"
+                    fi
+                  fi
+                  rm -f "${FILE}.enc"
+
+                  echo "==> Убираем старые копии на томе"
                   find /backups -name 'karandash_*.dump' -mtime "+${KEEP_DAYS}" -delete || true
 
                   DURATION=$(( ($(date +%s) - STARTED) * 1000 ))
@@ -113,7 +136,7 @@ spec:
                   [ "$STATUS" = ok ] || OK=false
                   echo "==> Итог: ok=${OK}, ${SIZE} байт, ${DURATION} мс ${MESSAGE}"
 
-                  # Отчёт ядру: из него получаются метрики и алерт.
+                  # Отчёт ядру: из него получаются метрики и алерты.
                   wget -q -O - --header="Authorization: Bearer ${CORE_SERVICE_TOKEN}" \
                     --header="Content-Type: application/json" \
                     --post-data="{\"service\":\"karandash\",\"ok\":${OK},\"sizeBytes\":${SIZE},\"durationMs\":${DURATION},\"message\":\"${MESSAGE}\"}" \
@@ -124,7 +147,7 @@ spec:
               volumeMounts:
                 - name: backups
                   mountPath: /backups
-                - name: backup-key
+                - name: encryption-key
                   mountPath: /keys
                   readOnly: true
               resources:
@@ -137,9 +160,12 @@ spec:
             - name: backups
               persistentVolumeClaim:
                 claimName: karandash-backups
-            # Ключа может не быть: тогда копия просто остаётся на томе.
-            - name: backup-key
+            # Ключ шифрования копий: он остаётся в РФ, за границу уезжает только шифротекст.
+            - name: encryption-key
               secret:
                 secretName: karandash-backup
-                optional: true
-                defaultMode: 0400
+                items:
+                  - key: encryption_pass
+                    path: encryption_pass
+                # Джоб работает не от root (образ postgres), поэтому файл ключа читаем всем внутри пода.
+                defaultMode: 0444

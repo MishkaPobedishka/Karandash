@@ -1,0 +1,109 @@
+# Общее хранилище резервных копий кластера: S3 (MinIO) на ноде, где не живут базы.
+# Все базы кластера — Дымохода, трекера и Карандаша — стоят на pythagoras, поэтому копии кладём
+# на ноду в Амстердаме: падение диска с базой больше не уносит копии вместе с ней.
+# Решение владельца от 23.09.2026: персональные данные Карандаша уезжают за границу в зашифрованном виде.
+#
+# Применяется отдельно от kustomize Карандаша: kubectl apply -f deploy/k8s/shared/backups-minio.yaml
+# Секрет backups-minio (MINIO_ROOT_USER / MINIO_ROOT_PASSWORD) создаётся руками, вне git.
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: backups
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: minio
+  namespace: backups
+spec:
+  selector:
+    app: minio
+  ports:
+    - name: s3
+      port: 9000
+      targetPort: 9000
+    - name: console
+      port: 9001
+      targetPort: 9001
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: minio-data
+  namespace: backups
+spec:
+  accessModes: ["ReadWriteOnce"]
+  resources:
+    requests:
+      storage: 10Gi
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: minio
+  namespace: backups
+spec:
+  replicas: 1
+  strategy:
+    # Том ReadWriteOnce: два пода одновременно его не получат.
+    type: Recreate
+  selector:
+    matchLabels:
+      app: minio
+  template:
+    metadata:
+      labels:
+        app: minio
+    spec:
+      nodeSelector:
+        chimney/role: ai
+      automountServiceAccountToken: false
+      enableServiceLinks: false
+      containers:
+        - name: minio
+          image: quay.io/minio/minio:RELEASE.2025-09-07T16-13-09Z
+          args: ["server", "/data", "--console-address", ":9001"]
+          env:
+            - name: MINIO_ROOT_USER
+              valueFrom:
+                secretKeyRef:
+                  name: backups-minio
+                  key: MINIO_ROOT_USER
+            - name: MINIO_ROOT_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: backups-minio
+                  key: MINIO_ROOT_PASSWORD
+            # Метрики отдаются без токена: Prometheus Дымохода снимает их обычным job-ом.
+            - name: MINIO_PROMETHEUS_AUTH_TYPE
+              value: public
+          ports:
+            - name: s3
+              containerPort: 9000
+            - name: console
+              containerPort: 9001
+          readinessProbe:
+            httpGet:
+              path: /minio/health/ready
+              port: 9000
+            initialDelaySeconds: 10
+            periodSeconds: 20
+          livenessProbe:
+            httpGet:
+              path: /minio/health/live
+              port: 9000
+            initialDelaySeconds: 30
+            periodSeconds: 30
+          resources:
+            requests:
+              cpu: 50m
+              memory: 256Mi
+            limits:
+              memory: 768Mi
+          volumeMounts:
+            - name: data
+              mountPath: /data
+      volumes:
+        - name: data
+          persistentVolumeClaim:
+            claimName: minio-data
