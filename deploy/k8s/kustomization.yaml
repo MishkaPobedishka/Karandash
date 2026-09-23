@@ -36,6 +36,6 @@ images:
   - name: karandash-telegram-bot
     newName: localhost:5000/karandash-telegram-bot
     newTag: latest
-  - name: karandash-backup
-    newName: localhost:5000/karandash-backup
+  - name: backup-tools
+    newName: localhost:5000/backup-tools
     newTag: latest

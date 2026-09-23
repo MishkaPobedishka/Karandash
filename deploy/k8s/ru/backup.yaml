@@ -39,7 +39,7 @@ spec:
           enableServiceLinks: false
           containers:
             - name: backup
-              image: karandash-backup
+              image: backup-tools
               env:
                 - name: PGPASSWORD
                   valueFrom:
@@ -51,8 +51,9 @@ spec:
                     secretKeyRef:
                       name: karandash-core
                       key: CORE_SERVICE_TOKEN
+                # Копии живут двое суток: решение владельца от 23.09.2026.
                 - name: KEEP_DAYS
-                  value: "14"
+                  value: "2"
                 # Общее хранилище копий кластера. Секрет создаётся при настройке MinIO.
                 - name: S3_ENDPOINT
                   valueFrom:
