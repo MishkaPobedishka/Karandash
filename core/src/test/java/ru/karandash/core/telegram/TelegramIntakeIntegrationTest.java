@@ -531,6 +531,53 @@ class TelegramIntakeIntegrationTest {
     }
 
     @Test
+    void clarificationKeepsWhatWasAlreadyAnsweredAndStopsAskingAfterSecondRound() {
+        long telegramId = 700_060;
+        allow(telegramId);
+        when(recognitionModel.recognizeTextWithUsage(anyString())).thenReturn(new ModelRecognition(
+                new RecognitionResult(List.of(), List.of("Что на маленькой тарелке?")), ModelUsage.unknown()));
+
+        send(TelegramInboundMessage.message(nextUpdateId(), telegramId, "обед: салат и что-то ещё"), null);
+        send(TelegramInboundMessage.message(nextUpdateId(), telegramId, "тефтелька в сливочном соусе"), null);
+        send(TelegramInboundMessage.message(nextUpdateId(), telegramId, "сок яблочный"), null);
+
+        ArgumentCaptor<String> requests = ArgumentCaptor.forClass(String.class);
+        verify(recognitionModel, times(3)).recognizeTextWithUsage(requests.capture());
+        String second = requests.getAllValues().get(1);
+        String third = requests.getAllValues().get(2);
+        assertThat(second).contains("обед: салат и что-то ещё").contains("тефтелька в сливочном соусе");
+        assertThat(third)
+                .as("в третьем запросе видно всё, что уже выяснили")
+                .contains("Вопрос модели: Что на маленькой тарелке?")
+                .contains("Ответ человека: тефтелька в сливочном соусе")
+                .contains("сок яблочный");
+        assertThat(third).as("второй круг уточнений — последний").contains("последний круг уточнений");
+        assertThat(third).contains("не проси их прислать");
+    }
+
+    @Test
+    void questionAboutCanteenGoesToLunchWithTheWish() {
+        long telegramId = 700_061;
+        allow(telegramId);
+        when(canteenClient.today()).thenReturn(Optional.of(MENU));
+        when(recognitionModel.adviseLunch(anyString())).thenReturn(Optional.of(new ModelLunchAdvice(
+                new LunchAdvice(List.of(new LunchOption("Лёгкий", List.of("Гречка с курицей"), 300, 380, 120, null))),
+                ModelUsage.unknown())));
+
+        TelegramReply reply = send(TelegramInboundMessage.message(nextUpdateId(), telegramId,
+                "Че похавать в столовой на 600-700 ккал, чтобы было первое и салат"), null);
+
+        ArgumentCaptor<String> prompt = ArgumentCaptor.forClass(String.class);
+        verify(recognitionModel).adviseLunch(prompt.capture());
+        verify(recognitionModel, org.mockito.Mockito.never()).recognizeTextWithUsage(anyString());
+        assertThat(prompt.getValue())
+                .as("пожелание уходит модели вместе с меню")
+                .contains("Меню столовой на сегодня")
+                .contains("чтобы было первое и салат");
+        assertThat(reply.messages()).singleElement().asString().startsWith("Сегодня в столовой:");
+    }
+
+    @Test
     void menuButtonShowsTheWholeCanteenMenu() {
         long telegramId = 700_042;
         allow(telegramId);

@@ -27,11 +27,13 @@ public class MealDraftService {
     }
 
     @Transactional
-    public MealDraft save(UUID accountId, DraftSource source, String inputText, RecognitionResult result, int revision) {
+    public MealDraft save(UUID accountId, DraftSource source, String inputText, RecognitionResult result,
+            int revision, String dialog) {
         drafts.deleteByAccountId(accountId);
         drafts.flush();
-        MealDraftEntity saved = drafts.save(new MealDraftEntity(accountId, source, inputText, write(result), revision));
-        return new MealDraft(saved.getId(), accountId, source, inputText, result, revision);
+        MealDraftEntity saved = drafts.save(
+                new MealDraftEntity(accountId, source, inputText, write(result), revision, dialog));
+        return new MealDraft(saved.getId(), accountId, source, inputText, result, revision, dialog);
     }
 
     @Transactional(readOnly = true)
@@ -51,7 +53,7 @@ public class MealDraftService {
 
     private MealDraft toDraft(MealDraftEntity entity) {
         return new MealDraft(entity.getId(), entity.getAccountId(), entity.getSource(), entity.getInputText(),
-                read(entity.getResultJson()), entity.getRevision());
+                read(entity.getResultJson()), entity.getRevision(), entity.getDialog());
     }
 
     public String write(RecognitionResult result) {

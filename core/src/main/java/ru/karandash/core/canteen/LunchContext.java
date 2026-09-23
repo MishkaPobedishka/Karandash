@@ -49,6 +49,22 @@ public class LunchContext {
     }
 
     public Optional<LunchSuggestion> suggest(UUID accountId, CanteenMenu menu) {
+        return suggest(accountId, menu, null);
+    }
+
+    /**
+     * Подбор с пожеланием человека своими словами. Такой ответ в память не кладём и из неё не берём:
+     * пожелание у каждого запроса своё, а кэш общий.
+     */
+    public Optional<LunchSuggestion> suggest(UUID accountId, CanteenMenu menu, String wish) {
+        if (wish != null && !wish.isBlank()) {
+            long startedAt = System.nanoTime();
+            Optional<LunchSuggestion> suggestion = advisor.advise(menu, diary.today(accountId),
+                    profiles.dailyTarget(accountId), wish);
+            suggestion.ifPresent(result -> usageRecorder.record(accountId, USAGE_KIND, provider(result),
+                    result.usage(), Duration.ofNanos(System.nanoTime() - startedAt)));
+            return suggestion;
+        }
         DiaryDay today = diary.today(accountId);
         String fingerprint = menu.fingerprint();
         Cached cached = cache.get(accountId);

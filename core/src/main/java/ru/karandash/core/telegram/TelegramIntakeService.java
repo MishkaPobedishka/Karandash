@@ -54,6 +54,13 @@ import java.util.function.Supplier;
 @EnableConfigurationProperties(TelegramIntakeProperties.class)
 public class TelegramIntakeService {
 
+    /** Сколько кругов уточнений допустимо, прежде чем модель обязана дать оценку. */
+    private static final int MAX_CLARIFICATIONS = 1;
+    /** Слова, по которым видно, что про столовую именно спрашивают, а не рассказывают. */
+    private static final List<String> CANTEEN_MARKERS = List.of(
+            "что ", "че ", "чо ", "чего", "посовет", "подбер", "покажи", "посмотри", "хочу", "можно",
+            "дай ", "взять", "поесть", "похавать", "пожрать", "пообедать", "выбрать", "предлож");
+
     private static final Logger log = LoggerFactory.getLogger(TelegramIntakeService.class);
 
     private final TelegramUpdateRepository updates;
@@ -197,6 +204,11 @@ public class TelegramIntakeService {
         if (text.length() > properties.maxTextLength()) {
             return TelegramReply.of(TelegramTexts.TOO_LONG.formatted(properties.maxTextLength()));
         }
+        // «Что взять в столовой на 600 ккал» — это просьба подобрать обед, а не рассказ о съеденном.
+        if (asksAboutCanteen(text)) {
+            drafts.discard(accountId);
+            return lunch(accountId, false, text);
+        }
         Optional<MealDraft> active = drafts.findActive(accountId);
         if (active.isPresent()) {
             return revise(accountId, active.get(), text);
@@ -223,7 +235,8 @@ public class TelegramIntakeService {
             case "/diary", "/дневник" -> TelegramReply.of(diaryFormatter.day(
                     diary.today(account.accountId()), profiles.dailyTarget(account.accountId())));
             case "/profile", "/профиль" -> profile(account.accountId());
-            case "/lunch", "/обед", "/столовая" -> lunch(account.accountId(), false);
+            case "/lunch", "/обед", "/столовая" -> lunch(account.accountId(), false,
+                    argument.isBlank() ? null : argument);
             case "/reminders", "/напоминания" -> reminderDialog.menu(account.accountId());
             case "/changelog" -> changelog(account, argument);
             case "/admin" -> adminOnly(account, adminDialog::panel);
@@ -388,7 +401,31 @@ public class TelegramIntakeService {
      * Что взять на обед сегодня: подбор под остаток калорий этого человека, фотографии предложенных блюд
      * и, если попросили, всё меню целиком.
      */
+    /**
+     * Про столовую спрашивают словами: «что взять в столовой», «покажи меню», «посоветуй обед».
+     * Рассказ о съеденном («съел суп в столовой») сюда не попадает — там нет просьбы.
+     */
+    static boolean asksAboutCanteen(String text) {
+        String lower = text.toLowerCase(Locale.ROOT).replace('ё', 'е');
+        if (lower.contains("меню")) {
+            return true;
+        }
+        if (!lower.contains("столов")) {
+            return false;
+        }
+        for (String marker : CANTEEN_MARKERS) {
+            if (lower.contains(marker)) {
+                return true;
+            }
+        }
+        return lower.endsWith("?");
+    }
+
     private TelegramReply lunch(UUID accountId, boolean withWholeMenu) {
+        return lunch(accountId, withWholeMenu, null);
+    }
+
+    private TelegramReply lunch(UUID accountId, boolean withWholeMenu, String wish) {
         if (!canteenProperties.workday()) {
             return TelegramReply.of(TelegramTexts.LUNCH_WEEKEND);
         }
@@ -396,7 +433,7 @@ public class TelegramIntakeService {
         if (menu.isEmpty()) {
             return TelegramReply.of(TelegramTexts.LUNCH_UNAVAILABLE);
         }
-        Optional<LunchSuggestion> suggestion = lunchContext.suggest(accountId, menu.get());
+        Optional<LunchSuggestion> suggestion = lunchContext.suggest(accountId, menu.get(), wish);
         if (suggestion.isEmpty()) {
             return TelegramReply.of(TelegramTexts.LUNCH_UNAVAILABLE);
         }
@@ -485,15 +522,40 @@ public class TelegramIntakeService {
             String inputText,
             Supplier<ModelRecognition> call
     ) {
-        return recognize(accountId, kind, call, result -> drafts.save(accountId, source, inputText, result, 0));
+        return recognize(accountId, kind, call, result -> drafts.save(accountId, source, inputText, result, 0, ""));
     }
 
     /** Пересчёт той же еды с учётом замечания пользователя: прошлая оценка уходит модели как контекст. */
+    /**
+     * Переоценка той же еды. В запрос уходит весь разговор: без него модель забывала уже полученные
+     * ответы и спрашивала снова. После второго круга уточнений вопросы запрещены — человек ждёт оценку.
+     */
     private TelegramReply revise(UUID accountId, MealDraft draft, String comment) {
-        String request = RecognitionContract.revisionRequest(draft.inputText(), drafts.write(draft.result()), comment);
+        String dialog = nextDialog(draft, comment);
+        boolean lastRound = draft.revision() >= MAX_CLARIFICATIONS;
+        String request = RecognitionContract.revisionRequest(draft.inputText(), draft.dialog(),
+                drafts.write(draft.result()), comment, lastRound);
         return recognize(accountId, RecognitionKind.REVISION,
                 () -> recognitionModel.recognizeTextWithUsage(request),
-                result -> drafts.save(accountId, draft.source(), draft.inputText(), result, draft.revision() + 1));
+                result -> drafts.save(accountId, draft.source(), draft.inputText(), result,
+                        draft.revision() + 1, dialog));
+    }
+
+    /** Копим разговор строками: что спросила модель и что ответил человек. */
+    private static String nextDialog(MealDraft draft, String comment) {
+        StringBuilder dialog = new StringBuilder(draft.dialog() == null ? "" : draft.dialog());
+        for (String question : draft.result().questions()) {
+            append(dialog, "Вопрос модели: " + question);
+        }
+        append(dialog, "Ответ человека: " + comment.strip());
+        return dialog.toString();
+    }
+
+    private static void append(StringBuilder dialog, String line) {
+        if (!dialog.isEmpty()) {
+            dialog.append('\n');
+        }
+        dialog.append(line);
     }
 
     private TelegramReply recognize(

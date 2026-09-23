@@ -32,6 +32,9 @@ public class MealDraftEntity {
     @Column(nullable = false)
     private int revision;
 
+    /** Вопросы модели и ответы человека по этой еде, по строке на реплику. */
+    private String dialog;
+
     @Column(nullable = false)
     private Instant createdAt;
 
@@ -41,13 +44,15 @@ public class MealDraftEntity {
     protected MealDraftEntity() {
     }
 
-    MealDraftEntity(UUID accountId, DraftSource source, String inputText, String resultJson, int revision) {
+    MealDraftEntity(UUID accountId, DraftSource source, String inputText, String resultJson, int revision,
+            String dialog) {
         this.id = UUID.randomUUID();
         this.accountId = accountId;
         this.inputSource = source.name();
         this.inputText = inputText;
         this.resultJson = resultJson;
         this.revision = revision;
+        this.dialog = dialog;
         this.createdAt = Instant.now();
         this.updatedAt = this.createdAt;
     }
@@ -66,6 +71,10 @@ public class MealDraftEntity {
 
     public String getInputText() {
         return inputText;
+    }
+
+    public String getDialog() {
+        return dialog;
     }
 
     public String getResultJson() {

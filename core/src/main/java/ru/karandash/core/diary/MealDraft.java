@@ -9,6 +9,7 @@ import java.util.UUID;
  *
  * @param inputText исходное описание еды; для фотографии — {@code null}
  * @param revision  сколько раз оценку уже пересчитывали по замечаниям пользователя
+ * @param dialog    вопросы модели и ответы человека по этой еде — всё, что уже выяснили
  */
 public record MealDraft(
         UUID id,
@@ -16,6 +17,7 @@ public record MealDraft(
         DraftSource source,
         String inputText,
         RecognitionResult result,
-        int revision
+        int revision,
+        String dialog
 ) {
 }
