@@ -154,6 +154,36 @@ kubectl top node                              # запас памяти на з�
 
 Readiness агента включает проверку CLI: если учётных данных нет или провайдер отклонил ключ в последнем вызове, под становится not ready. Истёкший ключ виден в `kubectl get pods`, а не только по молчанию бота.
 
+## Резервные копии
+
+Ночной `CronJob backup` в 03:30 по Москве снимает `pg_dump --format=custom` в том `karandash-backups`
+(нода РФ, рядом с базой), проверяет дамп через `pg_restore --list`, удаляет копии старше `KEEP_DAYS`
+и сообщает ядру, чем всё кончилось. Из отчёта получаются метрики `karandash_backup_age_seconds`,
+`karandash_backup_size_bytes`, `karandash_backup_duration_seconds`, `karandash_backup_ok`
+и два алерта: копии нет больше полутора суток и последняя копия не получилась.
+
+Снять копию прямо сейчас:
+
+```sh
+kubectl -n karandash create job backup-now --from=cronjob/backup
+kubectl -n karandash logs job/backup-now
+```
+
+Восстановление в отдельную базу (проверка копии или откат по частям):
+
+```sh
+kubectl -n karandash exec -it statefulset/postgres -- psql -U karandash -d postgres \
+  -c "create database restore_check"
+# файл копии лежит в томе karandash-backups; поднять под с этим томом и выполнить:
+pg_restore -h postgres -U karandash -d restore_check --no-owner /backups/karandash_<метка>.dump
+```
+
+**Копия уезжает с ноды, только если задан ключ.** Пока секрет `karandash-backup` пуст, а `REMOTE_HOST`
+в манифесте не заполнен, копии лежат на том же диске, что и база: это спасает от неудачной миграции
+и случайного удаления, но не от потери диска. Чтобы копии уходили на сервер резервных копий,
+положите приватный ключ в секрет `karandash-backup` (ключ `backup_key`), а в `ru/backup.yaml`
+пропишите `REMOTE_HOST` и `REMOTE_DIR`. Сервер копий должен быть в РФ: в дампе персональные данные.
+
 ## Сетевые политики
 
 `components/network-policies` разрешает только нужные входящие соединения: базу — ядру, ядро — приёмщику, агента — ядру. Политику брокера ведёт Дымоход. По умолчанию политики Карандаша выключены: в кластере Дымохода k3s/flannel уже неверно обрабатывал deny-all. Включаются раскомментированием `components` в `kustomization.yaml` после проверки на кластере.

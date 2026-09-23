@@ -1,0 +1,145 @@
+# Ночная копия базы Карандаша. Только нода РФ: в дампе те же персональные данные, что и в базе.
+# Копия кладётся на том рядом, а если дан ключ — уезжает ещё и на сервер резервных копий.
+# О каждом запуске CronJob сообщает ядру: из этого получаются метрики и алерт «копии давно не было».
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: karandash-backups
+spec:
+  accessModes: ["ReadWriteOnce"]
+  resources:
+    requests:
+      storage: 2Gi
+---
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: backup
+spec:
+  # 03:30 по Москве: Дымоход снимает свои копии в это же время суток, не мешаем друг другу на одном диске.
+  schedule: "30 3 * * *"
+  timeZone: Europe/Moscow
+  concurrencyPolicy: Forbid
+  successfulJobsHistoryLimit: 2
+  failedJobsHistoryLimit: 3
+  jobTemplate:
+    spec:
+      backoffLimit: 2
+      template:
+        metadata:
+          labels:
+            app: backup
+        spec:
+          restartPolicy: Never
+          nodeSelector:
+            karandash/region: ru
+          automountServiceAccountToken: false
+          enableServiceLinks: false
+          containers:
+            - name: backup
+              image: postgres:17-alpine
+              env:
+                - name: PGPASSWORD
+                  valueFrom:
+                    secretKeyRef:
+                      name: karandash-db
+                      key: POSTGRES_PASSWORD
+                - name: CORE_SERVICE_TOKEN
+                  valueFrom:
+                    secretKeyRef:
+                      name: karandash-core
+                      key: CORE_SERVICE_TOKEN
+                - name: KEEP_DAYS
+                  value: "14"
+                # Куда увезти копию. Пусто — копия остаётся только на томе рядом с базой.
+                - name: REMOTE_HOST
+                  value: ""
+                - name: REMOTE_DIR
+                  value: "/backups/karandash"
+              command: ["/bin/sh", "-c"]
+              args:
+                - |
+                  set -u
+                  STARTED=$(date +%s)
+                  STAMP=$(date +%Y%m%d_%H%M%S)
+                  FILE="/backups/karandash_${STAMP}.dump"
+                  STATUS=ok
+                  MESSAGE=""
+
+                  echo "==> Ждём базу"
+                  until pg_isready -h postgres -p 5432 -q; do sleep 2; done
+
+                  echo "==> Снимаем дамп"
+                  if ! pg_dump -h postgres -p 5432 -U karandash karandash --format=custom -f "$FILE"; then
+                    STATUS=fail
+                    MESSAGE="pg_dump не отработал"
+                  fi
+
+                  SIZE=0
+                  if [ "$STATUS" = ok ]; then
+                    SIZE=$(wc -c < "$FILE")
+                    # Пустой или подозрительно маленький дамп — это не копия.
+                    if [ "$SIZE" -lt 10240 ]; then
+                      STATUS=fail
+                      MESSAGE="дамп подозрительно мал: ${SIZE} байт"
+                    elif ! pg_restore --list "$FILE" > /dev/null 2>&1; then
+                      STATUS=fail
+                      MESSAGE="дамп не читается pg_restore"
+                    fi
+                  fi
+
+                  if [ "$STATUS" = ok ] && [ -n "${REMOTE_HOST}" ] && [ -f /keys/backup_key ]; then
+                    echo "==> Отправляем на ${REMOTE_HOST}"
+                    apk add --no-cache openssh-client > /dev/null 2>&1
+                    install -m600 /keys/backup_key /tmp/backup_key
+                    if ssh -o StrictHostKeyChecking=no -i /tmp/backup_key "$REMOTE_HOST" \
+                          "mkdir -p ${REMOTE_DIR}" \
+                       && scp -o StrictHostKeyChecking=no -i /tmp/backup_key "$FILE" \
+                          "${REMOTE_HOST}:${REMOTE_DIR}/karandash_${STAMP}.dump"; then
+                      ssh -o StrictHostKeyChecking=no -i /tmp/backup_key "$REMOTE_HOST" \
+                        "find ${REMOTE_DIR} -name 'karandash_*.dump' -mtime +${KEEP_DAYS} -delete" || true
+                    else
+                      MESSAGE="копия снята, но не уехала на ${REMOTE_HOST}"
+                      echo "$MESSAGE"
+                    fi
+                    rm -f /tmp/backup_key
+                  fi
+
+                  echo "==> Убираем старые копии"
+                  find /backups -name 'karandash_*.dump' -mtime "+${KEEP_DAYS}" -delete || true
+
+                  DURATION=$(( ($(date +%s) - STARTED) * 1000 ))
+                  OK=true
+                  [ "$STATUS" = ok ] || OK=false
+                  echo "==> Итог: ok=${OK}, ${SIZE} байт, ${DURATION} мс ${MESSAGE}"
+
+                  # Отчёт ядру: из него получаются метрики и алерт.
+                  wget -q -O - --header="Authorization: Bearer ${CORE_SERVICE_TOKEN}" \
+                    --header="Content-Type: application/json" \
+                    --post-data="{\"ok\":${OK},\"sizeBytes\":${SIZE},\"durationMs\":${DURATION},\"message\":\"${MESSAGE}\"}" \
+                    http://core:8080/internal/backup/report > /dev/null \
+                    && echo "==> Отчёт отправлен" || echo "Внимание: отчёт ядру не ушёл"
+
+                  [ "$STATUS" = ok ]
+              volumeMounts:
+                - name: backups
+                  mountPath: /backups
+                - name: backup-key
+                  mountPath: /keys
+                  readOnly: true
+              resources:
+                requests:
+                  cpu: 50m
+                  memory: 64Mi
+                limits:
+                  memory: 256Mi
+          volumes:
+            - name: backups
+              persistentVolumeClaim:
+                claimName: karandash-backups
+            # Ключа может не быть: тогда копия просто остаётся на томе.
+            - name: backup-key
+              secret:
+                secretName: karandash-backup
+                optional: true
+                defaultMode: 0400
