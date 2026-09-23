@@ -91,11 +91,12 @@ public final class CodexCli implements AgentCli {
             Path image = directory.root().resolve("input." + photo.type().extension());
             Files.write(image, photo.bytes());
             command.addAll(List.of("--image", image.toString()));
-            request = RecognitionContract.PHOTO_REQUEST;
+            request = Prompts.withContext(RecognitionContract.PHOTO_REQUEST, photo.context());
         } else if (task instanceof RecognitionTask.Lunch lunch) {
             request = lunch.prompt();
         } else {
-            request = Prompts.describeText(((RecognitionTask.Text) task).description());
+            RecognitionTask.Text text = (RecognitionTask.Text) task;
+            request = Prompts.withContext(Prompts.describeText(text.description()), text.context());
         }
         command.add("-");
         byte[] prompt = (Prompts.systemPrompt(task) + "\n" + request + "\n").getBytes(StandardCharsets.UTF_8);

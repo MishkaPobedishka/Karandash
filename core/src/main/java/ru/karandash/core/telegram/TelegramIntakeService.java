@@ -23,7 +23,9 @@ import ru.karandash.core.ai.ModelUnavailableException;
 import ru.karandash.core.ai.RecognitionModel;
 import ru.karandash.core.canteen.CanteenClient;
 import ru.karandash.core.canteen.CanteenMenu;
+import ru.karandash.core.canteen.CanteenHints;
 import ru.karandash.core.canteen.CanteenProperties;
+import ru.karandash.core.canteen.LunchDialogService;
 import ru.karandash.core.canteen.LunchContext;
 import ru.karandash.core.canteen.LunchSubscriptions;
 import ru.karandash.core.canteen.LunchSuggestion;
@@ -60,6 +62,17 @@ public class TelegramIntakeService {
     private static final List<String> CANTEEN_MARKERS = List.of(
             "что ", "че ", "чо ", "чего", "посовет", "подбер", "покажи", "посмотри", "хочу", "можно",
             "дай ", "взять", "поесть", "похавать", "пожрать", "пообедать", "выбрать", "предлож");
+    /** Просьба подобрать еду: столовая может и не называться, другой еды бот всё равно не подбирает. */
+    private static final List<String> EAT_REQUEST_MARKERS = List.of(
+            "что поесть", "чего поесть", "че поесть", "что мне поесть", "что съесть", "что бы съесть",
+            "что взять на обед", "что взять поесть", "чем пообедать", "что пообедать", "посоветуй поесть",
+            "посоветуй что", "подбери обед", "подбери еду", "что покушать", "что похавать", "что пожрать");
+    /** Реплика длиннее этого — уже описание еды, а не уточнение подбора. */
+    private static final int CANTEEN_REPLY_LIMIT = 120;
+    /** Рассказ о съеденном: такие слова закрывают разговор о столовой. */
+    private static final List<String> EATEN_MARKERS = List.of(
+            "съел", "съела", "поел", "поела", "ел ", "ела ", "скушал", "скушала", "выпил", "выпила",
+            "позавтракал", "позавтракала", "пообедал", "пообедала", "поужинал", "поужинала", "запиши");
 
     private static final Logger log = LoggerFactory.getLogger(TelegramIntakeService.class);
 
@@ -77,6 +90,8 @@ public class TelegramIntakeService {
     private final LunchSubscriptions subscriptions;
     private final LunchReplyFormatter lunchFormatter;
     private final CanteenProperties canteenProperties;
+    private final LunchDialogService lunchDialogs;
+    private final CanteenHints canteenHints;
     private final ReminderDialog reminderDialog;
     private final MealDraftService drafts;
     private final DiaryService diary;
@@ -99,6 +114,8 @@ public class TelegramIntakeService {
             LunchSubscriptions subscriptions,
             LunchReplyFormatter lunchFormatter,
             CanteenProperties canteenProperties,
+            LunchDialogService lunchDialogs,
+            CanteenHints canteenHints,
             ReminderDialog reminderDialog,
             MealDraftService drafts,
             DiaryService diary,
@@ -120,6 +137,8 @@ public class TelegramIntakeService {
         this.subscriptions = subscriptions;
         this.lunchFormatter = lunchFormatter;
         this.canteenProperties = canteenProperties;
+        this.lunchDialogs = lunchDialogs;
+        this.canteenHints = canteenHints;
         this.reminderDialog = reminderDialog;
         this.drafts = drafts;
         this.diary = diary;
@@ -194,9 +213,11 @@ public class TelegramIntakeService {
             return profileAnswer(accountId, setup.get(), text, photo);
         }
         if (photo != null && photo.bytes() != null && photo.bytes().length > 0) {
-            // Новое фото — всегда новая еда, прошлая оценка закрывается.
+            // Новое фото — всегда новая еда: прошлая оценка и разговор о столовой закрываются.
+            lunchDialogs.close(accountId);
+            String menu = canteenHints.todayMenu();
             return estimate(accountId, RecognitionKind.PHOTO, DraftSource.PHOTO, null,
-                    () -> recognitionModel.recognizePhotoWithUsage(photo.bytes(), photo.contentType()));
+                    () -> recognitionModel.recognizePhotoWithUsage(photo.bytes(), photo.contentType(), menu));
         }
         if (text.isEmpty()) {
             return TelegramReply.of(TelegramTexts.HELP);
@@ -207,14 +228,21 @@ public class TelegramIntakeService {
         // «Что взять в столовой на 600 ккал» — это просьба подобрать обед, а не рассказ о съеденном.
         if (asksAboutCanteen(text)) {
             drafts.discard(accountId);
-            return lunch(accountId, false, text);
+            return lunch(accountId, false, lunchDialogs.remember(accountId, text));
+        }
+        // Разговор о столовой открыт: «а полегче», «без мяса», «тогда на 300 ккал» — это уточнения подбора.
+        if (continuesCanteenTalk(accountId, text)) {
+            drafts.discard(accountId);
+            return lunch(accountId, false, lunchDialogs.remember(accountId, text));
         }
         Optional<MealDraft> active = drafts.findActive(accountId);
         if (active.isPresent()) {
             return revise(accountId, active.get(), text);
         }
+        lunchDialogs.close(accountId);
+        String menu = canteenHints.todayMenu();
         return estimate(accountId, RecognitionKind.TEXT, DraftSource.TEXT, text,
-                () -> recognitionModel.recognizeTextWithUsage(text));
+                () -> recognitionModel.recognizeTextWithUsage(text, menu));
     }
 
     private TelegramReply command(AccountAccess account, String text) {
@@ -407,10 +435,25 @@ public class TelegramIntakeService {
      */
     static boolean asksAboutCanteen(String text) {
         String lower = text.toLowerCase(Locale.ROOT).replace('ё', 'е');
+        if (tellsAboutEatenFood(lower)) {
+            return false;
+        }
         if (lower.contains("меню")) {
             return true;
         }
-        if (!lower.contains("столов")) {
+        boolean aboutCanteen = lower.contains("столов");
+        boolean asksWhatToEat = false;
+        for (String marker : EAT_REQUEST_MARKERS) {
+            if (lower.contains(marker)) {
+                asksWhatToEat = true;
+                break;
+            }
+        }
+        if (asksWhatToEat) {
+            // «Что поесть на 300 ккал» — это про столовую: другой еды бот не подбирает.
+            return true;
+        }
+        if (!aboutCanteen) {
             return false;
         }
         for (String marker : CANTEEN_MARKERS) {
@@ -419,6 +462,28 @@ public class TelegramIntakeService {
             }
         }
         return lower.endsWith("?");
+    }
+
+    /**
+     * Продолжение разговора о столовой: пока он открыт, короткая реплика без признаков съеденного —
+     * это уточнение подбора. «Съел вариант 1» разговор закрывает и уходит в дневник.
+     */
+    private boolean continuesCanteenTalk(UUID accountId, String text) {
+        if (lunchDialogs.active(accountId).isEmpty() || tellsAboutEatenFood(text)) {
+            return false;
+        }
+        return text.length() <= CANTEEN_REPLY_LIMIT;
+    }
+
+    /** Рассказ о съеденном узнаём по глаголам в прошедшем времени: это дневник, а не подбор. */
+    static boolean tellsAboutEatenFood(String text) {
+        String lower = text.toLowerCase(Locale.ROOT).replace('ё', 'е');
+        for (String marker : EATEN_MARKERS) {
+            if (lower.startsWith(marker) || lower.contains(" " + marker)) {
+                return true;
+            }
+        }
+        return false;
     }
 
     private TelegramReply lunch(UUID accountId, boolean withWholeMenu) {
@@ -535,8 +600,9 @@ public class TelegramIntakeService {
         boolean lastRound = draft.revision() >= MAX_CLARIFICATIONS;
         String request = RecognitionContract.revisionRequest(draft.inputText(), draft.dialog(),
                 drafts.write(draft.result()), comment, lastRound);
+        String menu = canteenHints.todayMenu();
         return recognize(accountId, RecognitionKind.REVISION,
-                () -> recognitionModel.recognizeTextWithUsage(request),
+                () -> recognitionModel.recognizeTextWithUsage(request, menu),
                 result -> drafts.save(accountId, draft.source(), draft.inputText(), result,
                         draft.revision() + 1, dialog));
     }

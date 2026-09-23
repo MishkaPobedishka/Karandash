@@ -124,7 +124,7 @@ public final class ClaudeCli implements AgentCli {
         switch (task) {
             case RecognitionTask.Text text -> content.addObject()
                     .put("type", "text")
-                    .put("text", Prompts.describeText(text.description()));
+                    .put("text", Prompts.withContext(Prompts.describeText(text.description()), text.context()));
             case RecognitionTask.Photo photo -> {
                 ObjectNode image = content.addObject().put("type", "image");
                 image.putObject("source")
@@ -133,7 +133,7 @@ public final class ClaudeCli implements AgentCli {
                         .put("data", Base64.getEncoder().encodeToString(photo.bytes()));
                 content.addObject()
                         .put("type", "text")
-                        .put("text", RecognitionContract.PHOTO_REQUEST);
+                        .put("text", Prompts.withContext(RecognitionContract.PHOTO_REQUEST, photo.context()));
             }
             case RecognitionTask.Lunch lunch -> content.addObject()
                     .put("type", "text")

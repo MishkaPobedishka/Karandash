@@ -20,6 +20,23 @@ class CanteenRequestTest {
     }
 
     @Test
+    void understandsRequestsWithoutTheWordCanteen() {
+        assertThat(TelegramIntakeService.asksAboutCanteen("что мне поесть из столовой на 300 калорий")).isTrue();
+        assertThat(TelegramIntakeService.asksAboutCanteen("что поесть на 300 ккал")).isTrue();
+        assertThat(TelegramIntakeService.asksAboutCanteen("чем пообедать сегодня?")).isTrue();
+        assertThat(TelegramIntakeService.asksAboutCanteen("посоветуй что взять, хочу полегче")).isTrue();
+    }
+
+    @Test
+    void knowsWhenSomeoneTellsAboutEatenFood() {
+        assertThat(TelegramIntakeService.tellsAboutEatenFood("съел вариант 1")).isTrue();
+        assertThat(TelegramIntakeService.tellsAboutEatenFood("пообедал в столовой супом")).isTrue();
+        assertThat(TelegramIntakeService.tellsAboutEatenFood("запиши борщ и компот")).isTrue();
+        assertThat(TelegramIntakeService.tellsAboutEatenFood("а полегче можно?")).isFalse();
+        assertThat(TelegramIntakeService.asksAboutCanteen("съел суп в столовой и компот")).isFalse();
+    }
+
+    @Test
     void leavesFoodReportsToTheDiary() {
         assertThat(TelegramIntakeService.asksAboutCanteen("съел суп в столовой и компот")).isFalse();
         assertThat(TelegramIntakeService.asksAboutCanteen("гречка с курицей, обычная тарелка")).isFalse();

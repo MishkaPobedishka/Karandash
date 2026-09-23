@@ -50,19 +50,29 @@ final class AgentRecognitionModel implements RecognitionModel {
 
     @Override
     public ModelRecognition recognizeTextWithUsage(String description) {
+        return recognizeTextWithUsage(description, null);
+    }
+
+    @Override
+    public ModelRecognition recognizeTextWithUsage(String description, String context) {
         if (description == null || description.isBlank()) {
             throw new IllegalArgumentException("Описание еды не должно быть пустым");
         }
         return call(() -> restClient.post()
                 .uri("/internal/recognition/text")
                 .contentType(MediaType.APPLICATION_JSON)
-                .body(new AgentTextRequest(description))
+                .body(new AgentTextRequest(description, context))
                 .retrieve()
                 .body(AgentRecognitionResponse.class));
     }
 
     @Override
     public ModelRecognition recognizePhotoWithUsage(byte[] image, String contentType) {
+        return recognizePhotoWithUsage(image, contentType, null);
+    }
+
+    @Override
+    public ModelRecognition recognizePhotoWithUsage(byte[] image, String contentType, String context) {
         if (image == null || image.length == 0) {
             throw new IllegalArgumentException("Изображение не должно быть пустым");
         }
@@ -75,6 +85,9 @@ final class AgentRecognitionModel implements RecognitionModel {
                 return "photo";
             }
         }, photoHeaders));
+        if (context != null && !context.isBlank()) {
+            parts.add("context", context);
+        }
         return call(() -> restClient.post()
                 .uri("/internal/recognition/photo")
                 .contentType(MediaType.MULTIPART_FORM_DATA)

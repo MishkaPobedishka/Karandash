@@ -27,12 +27,16 @@ public class RecognitionController {
 
     @PostMapping(path = "/text", consumes = MediaType.APPLICATION_JSON_VALUE)
     AgentRecognitionResponse recognizeText(@RequestBody AgentTextRequest request) {
-        return recognitionService.recognizeText(request == null ? null : request.description());
+        return recognitionService.recognizeText(request == null ? null : request.description(),
+                request == null ? null : request.context());
     }
 
     @PostMapping(path = "/photo", consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
-    AgentRecognitionResponse recognizePhoto(@RequestPart("photo") MultipartFile photo) throws IOException {
-        return recognitionService.recognizePhoto(photo.getBytes());
+    AgentRecognitionResponse recognizePhoto(
+            @RequestPart("photo") MultipartFile photo,
+            @RequestPart(name = "context", required = false) String context
+    ) throws IOException {
+        return recognitionService.recognizePhoto(photo.getBytes(), context);
     }
 
     /** Подбор обеда по меню столовой: запрос собирает ядро. */

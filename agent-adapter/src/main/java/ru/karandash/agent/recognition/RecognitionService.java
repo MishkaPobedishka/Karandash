@@ -60,16 +60,24 @@ public class RecognitionService {
     }
 
     public AgentRecognitionResponse recognizeText(String description) {
+        return recognizeText(description, null);
+    }
+
+    public AgentRecognitionResponse recognizeText(String description, String context) {
         if (description == null || description.isBlank()) {
             throw new InvalidInputException("Описание еды не должно быть пустым");
         }
         if (description.length() > properties.maxTextLength()) {
             throw new InvalidInputException("Описание еды длиннее " + properties.maxTextLength() + " символов");
         }
-        return recognize(new RecognitionTask.Text(description.strip()));
+        return recognize(new RecognitionTask.Text(description.strip(), context));
     }
 
     public AgentRecognitionResponse recognizePhoto(byte[] image) {
+        return recognizePhoto(image, null);
+    }
+
+    public AgentRecognitionResponse recognizePhoto(byte[] image, String context) {
         if (image == null || image.length == 0) {
             throw new InvalidInputException("Фотография не должна быть пустой");
         }
@@ -78,7 +86,7 @@ public class RecognitionService {
         }
         ImageType type = ImageType.detect(image)
                 .orElseThrow(() -> new InvalidInputException("Поддерживаются только фото JPEG, PNG, WebP и GIF"));
-        return recognize(new RecognitionTask.Photo(image, type));
+        return recognize(new RecognitionTask.Photo(image, type, context));
     }
 
     /** Подбор обеда: меню и рамки собирает ядро, поэтому вход здесь доверенный, а вот ответ — нет. */

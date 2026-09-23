@@ -178,7 +178,7 @@ class TelegramIntakeIntegrationTest {
                 .contains(String.valueOf(telegramId));
         assertThat(start.buttons()).extracting(ReplyButton::text).containsExactly("Подать заявку");
         assertThat(food.messages()).singleElement().asString().startsWith("Карандаш пока в закрытом бета-тесте");
-        verify(recognitionModel, org.mockito.Mockito.never()).recognizeTextWithUsage(anyString());
+        verify(recognitionModel, org.mockito.Mockito.never()).recognizeTextWithUsage(anyString(), any());
         assertThat(jdbc.queryForObject(
                 "select count(*) from telegram_identity where telegram_id = ?", Integer.class, telegramId)).isOne();
         assertThat(jdbc.queryForObject("""
@@ -265,7 +265,7 @@ class TelegramIntakeIntegrationTest {
     void recognizesTextOnceAndRecordsUsage() {
         long telegramId = 700_002;
         allow(telegramId);
-        when(recognitionModel.recognizeTextWithUsage(anyString())).thenReturn(new ModelRecognition(BUCKWHEAT,
+        when(recognitionModel.recognizeTextWithUsage(anyString(), any())).thenReturn(new ModelRecognition(BUCKWHEAT,
                 new ModelUsage("claude-cli", "claude-sonnet-5", 1200, 150, new BigDecimal("0.0123"))));
         TelegramInboundMessage message = TelegramInboundMessage.message(nextUpdateId(), telegramId, "гречка с курицей");
 
@@ -277,7 +277,7 @@ class TelegramIntakeIntegrationTest {
                 .contains("Б 25–32 г · Ж 8–12 г · У 45–60 г · уверенность 70%");
         assertThat(repeated.duplicate()).isTrue();
         assertThat(repeated.messages()).isEmpty();
-        verify(recognitionModel, times(1)).recognizeTextWithUsage("гречка с курицей");
+        verify(recognitionModel, times(1)).recognizeTextWithUsage(eq("гречка с курицей"), any());
 
         Map<String, Object> usage = jdbc.queryForMap("""
                 select u.kind, u.provider, u.model, u.tokens_in, u.tokens_out, u.cost, u.latency_ms
@@ -295,7 +295,7 @@ class TelegramIntakeIntegrationTest {
     void recognizesPhotoAndAsksQuestions() {
         byte[] photo = {(byte) 0xFF, (byte) 0xD8, (byte) 0xFF, 1, 2, 3};
         allow(700_003);
-        when(recognitionModel.recognizePhotoWithUsage(any(), any())).thenReturn(new ModelRecognition(
+        when(recognitionModel.recognizePhotoWithUsage(any(), any(), any())).thenReturn(new ModelRecognition(
                 new RecognitionResult(List.of(), List.of("Что это за суп?")), ModelUsage.unknown()));
 
         TelegramReply reply = send(TelegramInboundMessage.message(nextUpdateId(), 700_003, null), photo);
@@ -303,7 +303,7 @@ class TelegramIntakeIntegrationTest {
         assertThat(reply.messages()).singleElement().asString()
                 .startsWith("Чтобы оценить, уточните:\n1. Что это за суп?")
                 .endsWith("Ответьте сообщением — или нажмите «Оцени как есть», и я прикину по типичному варианту.");
-        verify(recognitionModel).recognizePhotoWithUsage(eq(photo), eq("image/jpeg"));
+        verify(recognitionModel).recognizePhotoWithUsage(eq(photo), eq("image/jpeg"), any());
         assertThat(jdbc.queryForObject("""
                 select u.provider from usage_record u join telegram_identity t on t.account_id = u.account_id
                 where t.telegram_id = ?""", String.class, 700_003L)).isEqualTo("agent");
@@ -312,7 +312,7 @@ class TelegramIntakeIntegrationTest {
     @Test
     void modelFailureGivesFriendlyAnswerAndIsRecorded() {
         allow(700_004);
-        when(recognitionModel.recognizeTextWithUsage(anyString()))
+        when(recognitionModel.recognizeTextWithUsage(anyString(), any()))
                 .thenThrow(new ModelUnavailableException("Агент-адаптер ответил 504"));
 
         TelegramReply reply = send(TelegramInboundMessage.message(nextUpdateId(), 700_004, "борщ"), null);
@@ -345,7 +345,7 @@ class TelegramIntakeIntegrationTest {
     void estimateGoesToDiaryOnlyAfterButton() {
         long telegramId = 700_010;
         allow(telegramId);
-        when(recognitionModel.recognizeTextWithUsage(anyString()))
+        when(recognitionModel.recognizeTextWithUsage(anyString(), any()))
                 .thenReturn(new ModelRecognition(BUCKWHEAT, ModelUsage.unknown()));
 
         TelegramReply estimate = send(
@@ -382,7 +382,7 @@ class TelegramIntakeIntegrationTest {
     void commentRecalculatesTheSameMeal() {
         long telegramId = 700_011;
         allow(telegramId);
-        when(recognitionModel.recognizeTextWithUsage(anyString()))
+        when(recognitionModel.recognizeTextWithUsage(anyString(), any()))
                 .thenReturn(new ModelRecognition(DUMPLING_QUESTION, ModelUsage.unknown()))
                 .thenReturn(new ModelRecognition(DUMPLING, ModelUsage.unknown()));
 
@@ -393,7 +393,7 @@ class TelegramIntakeIntegrationTest {
         assertThat(asked.buttons()).extracting(ReplyButton::text)
                 .containsExactly("Оцени как есть", "✗ Не записывать");
         ArgumentCaptor<String> requests = ArgumentCaptor.forClass(String.class);
-        verify(recognitionModel, times(2)).recognizeTextWithUsage(requests.capture());
+        verify(recognitionModel, times(2)).recognizeTextWithUsage(requests.capture(), any());
         assertThat(requests.getAllValues().getLast())
                 .as("модель получает и прошлую оценку, и ответ пользователя")
                 .contains("пельмень")
@@ -412,7 +412,7 @@ class TelegramIntakeIntegrationTest {
     void asIsButtonAsksModelForTypicalEstimate() {
         long telegramId = 700_012;
         allow(telegramId);
-        when(recognitionModel.recognizeTextWithUsage(anyString()))
+        when(recognitionModel.recognizeTextWithUsage(anyString(), any()))
                 .thenReturn(new ModelRecognition(DUMPLING_QUESTION, ModelUsage.unknown()))
                 .thenReturn(new ModelRecognition(DUMPLING, ModelUsage.unknown()));
 
@@ -421,7 +421,7 @@ class TelegramIntakeIntegrationTest {
                 TelegramInboundMessage.button(nextUpdateId(), telegramId, button(asked, 0)), null);
 
         ArgumentCaptor<String> requests = ArgumentCaptor.forClass(String.class);
-        verify(recognitionModel, times(2)).recognizeTextWithUsage(requests.capture());
+        verify(recognitionModel, times(2)).recognizeTextWithUsage(requests.capture(), any());
         assertThat(requests.getAllValues().getLast()).contains("Уточнить не могу, оцени по типичному варианту.");
         assertThat(revised.messages()).singleElement().asString().contains("Пельмень с мясом");
     }
@@ -430,7 +430,7 @@ class TelegramIntakeIntegrationTest {
     void dropButtonForgetsEstimateAndNextMessageStartsOver() {
         long telegramId = 700_013;
         allow(telegramId);
-        when(recognitionModel.recognizeTextWithUsage(anyString()))
+        when(recognitionModel.recognizeTextWithUsage(anyString(), any()))
                 .thenReturn(new ModelRecognition(BUCKWHEAT, ModelUsage.unknown()));
 
         TelegramReply estimate = send(
@@ -442,7 +442,7 @@ class TelegramIntakeIntegrationTest {
         assertThat(dropped.messages()).singleElement().asString().startsWith("Не записал.");
         assertThat(meals(telegramId)).isZero();
         // После отказа следующее сообщение — новая еда, а не уточнение к закрытой оценке.
-        verify(recognitionModel).recognizeTextWithUsage("борщ");
+        verify(recognitionModel).recognizeTextWithUsage(eq("борщ"), any());
     }
 
     @Test
@@ -451,7 +451,7 @@ class TelegramIntakeIntegrationTest {
         long second = 700_015;
         allow(first);
         allow(second);
-        when(recognitionModel.recognizeTextWithUsage(anyString()))
+        when(recognitionModel.recognizeTextWithUsage(anyString(), any()))
                 .thenReturn(new ModelRecognition(BUCKWHEAT, ModelUsage.unknown()))
                 .thenReturn(new ModelRecognition(DUMPLING, ModelUsage.unknown()));
 
@@ -534,7 +534,7 @@ class TelegramIntakeIntegrationTest {
     void clarificationKeepsWhatWasAlreadyAnsweredAndStopsAskingAfterSecondRound() {
         long telegramId = 700_060;
         allow(telegramId);
-        when(recognitionModel.recognizeTextWithUsage(anyString())).thenReturn(new ModelRecognition(
+        when(recognitionModel.recognizeTextWithUsage(anyString(), any())).thenReturn(new ModelRecognition(
                 new RecognitionResult(List.of(), List.of("Что на маленькой тарелке?")), ModelUsage.unknown()));
 
         send(TelegramInboundMessage.message(nextUpdateId(), telegramId, "обед: салат и что-то ещё"), null);
@@ -542,7 +542,7 @@ class TelegramIntakeIntegrationTest {
         send(TelegramInboundMessage.message(nextUpdateId(), telegramId, "сок яблочный"), null);
 
         ArgumentCaptor<String> requests = ArgumentCaptor.forClass(String.class);
-        verify(recognitionModel, times(3)).recognizeTextWithUsage(requests.capture());
+        verify(recognitionModel, times(3)).recognizeTextWithUsage(requests.capture(), any());
         String second = requests.getAllValues().get(1);
         String third = requests.getAllValues().get(2);
         assertThat(second).contains("обед: салат и что-то ещё").contains("тефтелька в сливочном соусе");
@@ -569,12 +569,61 @@ class TelegramIntakeIntegrationTest {
 
         ArgumentCaptor<String> prompt = ArgumentCaptor.forClass(String.class);
         verify(recognitionModel).adviseLunch(prompt.capture());
-        verify(recognitionModel, org.mockito.Mockito.never()).recognizeTextWithUsage(anyString());
+        verify(recognitionModel, org.mockito.Mockito.never()).recognizeTextWithUsage(anyString(), any());
         assertThat(prompt.getValue())
                 .as("пожелание уходит модели вместе с меню")
                 .contains("Меню столовой на сегодня")
                 .contains("чтобы было первое и салат");
         assertThat(reply.messages()).singleElement().asString().startsWith("Сегодня в столовой:");
+    }
+
+    @Test
+    void recognitionGetsTodayCanteenMenuAsAReference() {
+        long telegramId = 700_063;
+        allow(telegramId);
+        when(canteenClient.today()).thenReturn(Optional.of(MENU));
+        when(recognitionModel.recognizeTextWithUsage(anyString(), any())).thenReturn(new ModelRecognition(
+                new RecognitionResult(List.of(), List.of("Сколько было гречки?")), ModelUsage.unknown()));
+
+        send(TelegramInboundMessage.message(nextUpdateId(), telegramId, "гречка с курицей на обед"), null);
+
+        ArgumentCaptor<String> context = ArgumentCaptor.forClass(String.class);
+        verify(recognitionModel).recognizeTextWithUsage(eq("гречка с курицей на обед"), context.capture());
+        assertThat(context.getValue())
+                .as("модель видит сегодняшнее меню и берёт из него вес и калорийность")
+                .contains("Сегодняшнее меню столовой")
+                .contains("Гречка с курицей, 250 г, 109.5 ккал")
+                .contains("бери её вес и пищевую ценность оттуда");
+    }
+
+    @Test
+    void canteenTalkContinuesWithShortFollowUps() {
+        long telegramId = 700_062;
+        allow(telegramId);
+        when(canteenClient.today()).thenReturn(Optional.of(MENU));
+        when(recognitionModel.adviseLunch(anyString())).thenReturn(Optional.of(new ModelLunchAdvice(
+                new LunchAdvice(List.of(new LunchOption("Лёгкий", List.of("Гречка с курицей"), 300, 380, 120, null))),
+                ModelUsage.unknown())));
+
+        when(recognitionModel.recognizeTextWithUsage(anyString(), any())).thenReturn(new ModelRecognition(
+                new RecognitionResult(List.of(), List.of("Сколько было гречки?")), ModelUsage.unknown()));
+
+        send(TelegramInboundMessage.message(nextUpdateId(), telegramId, "что мне поесть на 300 калорий"), null);
+        TelegramReply lighter = send(TelegramInboundMessage.message(nextUpdateId(), telegramId, "а полегче?"), null);
+        TelegramReply eaten = send(TelegramInboundMessage.message(nextUpdateId(), telegramId,
+                "съел гречку с курицей"), null);
+
+        ArgumentCaptor<String> prompts = ArgumentCaptor.forClass(String.class);
+        verify(recognitionModel, times(2)).adviseLunch(prompts.capture());
+        assertThat(prompts.getAllValues().get(0)).contains("что мне поесть на 300 калорий");
+        assertThat(prompts.getAllValues().get(1))
+                .as("уточнение приходит вместе с первой просьбой")
+                .contains("что мне поесть на 300 калорий")
+                .contains("а полегче?");
+        assertThat(lighter.messages()).singleElement().asString().startsWith("Сегодня в столовой:");
+        // «Съел…» закрывает разговор о столовой и уходит в дневник.
+        verify(recognitionModel).recognizeTextWithUsage(anyString(), any());
+        assertThat(eaten.messages()).singleElement().asString().doesNotStartWith("Сегодня в столовой:");
     }
 
     @Test
@@ -720,7 +769,7 @@ class TelegramIntakeIntegrationTest {
     void profileWizardCountsDailyNormAndDiaryShowsWhatIsLeft() {
         long telegramId = 700_030;
         allow(telegramId);
-        when(recognitionModel.recognizeTextWithUsage(anyString()))
+        when(recognitionModel.recognizeTextWithUsage(anyString(), any()))
                 .thenReturn(new ModelRecognition(BUCKWHEAT, ModelUsage.unknown()));
 
         TelegramReply start = send(TelegramInboundMessage.message(nextUpdateId(), telegramId, "/profile"), null);

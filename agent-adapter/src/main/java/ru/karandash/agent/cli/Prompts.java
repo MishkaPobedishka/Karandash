@@ -26,4 +26,9 @@ final class Prompts {
     static String describeText(String description) {
         return "Описание еды от пользователя:\n<описание>\n" + description + "\n</описание>";
     }
+
+    /** Справка ядра (например, меню столовой) идёт отдельно от пользовательского ввода. */
+    static String withContext(String prompt, String context) {
+        return context == null || context.isBlank() ? prompt : context.strip() + "\n\n" + prompt;
+    }
 }

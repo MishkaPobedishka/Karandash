@@ -7,7 +7,11 @@ public sealed interface RecognitionTask {
 
     String kind();
 
-    record Text(String description) implements RecognitionTask {
+    record Text(String description, String context) implements RecognitionTask {
+
+        public Text(String description) {
+            this(description, null);
+        }
 
         @Override
         public String kind() {
@@ -15,7 +19,11 @@ public sealed interface RecognitionTask {
         }
     }
 
-    record Photo(byte[] bytes, ImageType type) implements RecognitionTask {
+    record Photo(byte[] bytes, ImageType type, String context) implements RecognitionTask {
+
+        public Photo(byte[] bytes, ImageType type) {
+            this(bytes, type, null);
+        }
 
         @Override
         public String kind() {

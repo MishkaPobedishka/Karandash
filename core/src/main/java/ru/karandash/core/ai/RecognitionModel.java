@@ -23,6 +23,18 @@ public interface RecognitionModel {
     }
 
     /**
+     * То же распознавание, но со справкой от ядра — например, сегодняшним меню столовой:
+     * по будням обед чаще всего оттуда, и вес с калорийностью лучше взять из меню, чем оценивать на глаз.
+     */
+    default ModelRecognition recognizeTextWithUsage(String description, String context) {
+        return recognizeTextWithUsage(description);
+    }
+
+    default ModelRecognition recognizePhotoWithUsage(byte[] image, String contentType, String context) {
+        return recognizePhotoWithUsage(image, contentType);
+    }
+
+    /**
      * Подбор обеда по меню столовой. Провайдеры, которые этого не умеют, возвращают пустой результат —
      * тогда рассылка просто не уходит.
      */
