@@ -8,6 +8,7 @@ import ru.karandash.contracts.ai.ModelUsage;
 import ru.karandash.contracts.ai.RecognitionContract;
 import ru.karandash.contracts.ai.RecognitionResult;
 import ru.karandash.contracts.telegram.ReplyButton;
+import ru.karandash.contracts.telegram.ReplyPhoto;
 import ru.karandash.contracts.telegram.TelegramInboundMessage;
 import ru.karandash.contracts.telegram.TelegramReply;
 import ru.karandash.contracts.telegram.TelegramUserName;
@@ -22,6 +23,7 @@ import ru.karandash.core.ai.ModelUnavailableException;
 import ru.karandash.core.ai.RecognitionModel;
 import ru.karandash.core.canteen.CanteenClient;
 import ru.karandash.core.canteen.CanteenMenu;
+import ru.karandash.core.canteen.CanteenProperties;
 import ru.karandash.core.canteen.LunchContext;
 import ru.karandash.core.canteen.LunchSubscriptions;
 import ru.karandash.core.canteen.LunchSuggestion;
@@ -67,6 +69,7 @@ public class TelegramIntakeService {
     private final LunchContext lunchContext;
     private final LunchSubscriptions subscriptions;
     private final LunchReplyFormatter lunchFormatter;
+    private final CanteenProperties canteenProperties;
     private final ReminderDialog reminderDialog;
     private final MealDraftService drafts;
     private final DiaryService diary;
@@ -88,6 +91,7 @@ public class TelegramIntakeService {
             LunchContext lunchContext,
             LunchSubscriptions subscriptions,
             LunchReplyFormatter lunchFormatter,
+            CanteenProperties canteenProperties,
             ReminderDialog reminderDialog,
             MealDraftService drafts,
             DiaryService diary,
@@ -108,6 +112,7 @@ public class TelegramIntakeService {
         this.lunchContext = lunchContext;
         this.subscriptions = subscriptions;
         this.lunchFormatter = lunchFormatter;
+        this.canteenProperties = canteenProperties;
         this.reminderDialog = reminderDialog;
         this.drafts = drafts;
         this.diary = diary;
@@ -384,6 +389,9 @@ public class TelegramIntakeService {
      * и, если попросили, всё меню целиком.
      */
     private TelegramReply lunch(UUID accountId, boolean withWholeMenu) {
+        if (!canteenProperties.workday()) {
+            return TelegramReply.of(TelegramTexts.LUNCH_WEEKEND);
+        }
         Optional<CanteenMenu> menu = canteen.today();
         if (menu.isEmpty()) {
             return TelegramReply.of(TelegramTexts.LUNCH_UNAVAILABLE);
@@ -395,6 +403,8 @@ public class TelegramIntakeService {
         List<String> messages = new ArrayList<>();
         messages.add(lunchFormatter.answer(suggestion.get(), lunchContext.remaining(accountId)));
         List<ReplyButton> buttons = new ArrayList<>();
+        // Фотографии уместны к подбору: в списке всего меню альбом только мешает.
+        List<ReplyPhoto> photos = withWholeMenu ? List.of() : lunchFormatter.photos(suggestion.get());
         if (withWholeMenu) {
             messages.addAll(lunchFormatter.menu(menu.get()));
         } else {
@@ -402,8 +412,8 @@ public class TelegramIntakeService {
                     .button(TelegramTexts.BUTTON_LUNCH_FULL));
         }
         buttons.add(mailingButton(subscriptions.enabled(accountId)));
-        // Фотографии уходят альбомом следом за текстом: ссылки столовой подписаны и живут около часа.
-        return TelegramReply.withPhotos(messages, buttons, lunchFormatter.photos(suggestion.get()));
+        // Ссылки на фотографии подписаны и живут около часа, поэтому уходят в том же ответе.
+        return TelegramReply.withPhotos(messages, buttons, photos);
     }
 
     private static ReplyButton mailingButton(boolean enabled) {

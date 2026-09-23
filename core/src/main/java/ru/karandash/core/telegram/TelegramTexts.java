@@ -195,6 +195,10 @@ final class TelegramTexts {
 
     static final String BUTTON_LUNCH_FULL = "Показать всё меню";
 
+    static final String LUNCH_WEEKEND =
+            "По выходным столовая ЦО не работает — меню будет в понедельник. "
+                    + "Еду всё равно присылайте: фото или словами, запишу в дневник.";
+
     static final String LUNCH_UNAVAILABLE =
             "Меню столовой сейчас недоступно. Попробуйте позже или опишите еду словами.";
 

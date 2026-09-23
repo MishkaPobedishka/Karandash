@@ -3,6 +3,7 @@ package ru.karandash.core.telegram;
 import org.springframework.stereotype.Component;
 import ru.karandash.contracts.telegram.ReplyButton;
 import ru.karandash.contracts.telegram.TelegramReply;
+import ru.karandash.core.canteen.CanteenProperties;
 import ru.karandash.core.reminder.Reminder;
 import ru.karandash.core.reminder.ReminderService;
 import ru.karandash.core.reminder.ReminderType;
@@ -27,9 +28,11 @@ public class ReminderDialog {
     private static final List<Integer> SHIFTS = List.of(-60, -10, 10, 60);
 
     private final ReminderService reminders;
+    private final CanteenProperties canteen;
 
-    public ReminderDialog(ReminderService reminders) {
+    public ReminderDialog(ReminderService reminders, CanteenProperties canteen) {
         this.reminders = reminders;
+        this.canteen = canteen;
     }
 
     /** Кнопка, которой открывают напоминания из приветствия, подсказки и самого напоминания. */
@@ -45,7 +48,7 @@ public class ReminderDialog {
     /** Под напоминанием — настройка, а под обедом ещё и меню столовой. */
     public List<ReplyButton> dueButtons(ReminderType type) {
         List<ReplyButton> buttons = new ArrayList<>();
-        if (type == ReminderType.LUNCH) {
+        if (type == ReminderType.LUNCH && canteen.workday()) {
             buttons.add(new DialogCallback(DialogCallback.Action.LUNCH_SHOW).button(TelegramTexts.BUTTON_LUNCH_MENU));
         }
         buttons.add(settingsButton());

@@ -81,7 +81,9 @@ import static org.mockito.Mockito.when;
         "karandash.ai.provider=agent",
         "karandash.ai.agent.base-url=http://agent.invalid:8095",
         "karandash.ai.agent.service-token=agent-token",
-        "karandash.outbox.poll-delay-ms=200"
+        "karandash.outbox.poll-delay-ms=200",
+        // Проверки столовой не должны зависеть от того, в какой день недели их запустили.
+        "karandash.canteen.weekends-off=false"
 })
 class TelegramIntakeIntegrationTest {
 
@@ -543,6 +545,14 @@ class TelegramIntakeIntegrationTest {
 
         verify(recognitionModel, times(1)).adviseLunch(anyString());
         assertThat(lunch.photos()).as("подбор из памяти приходит с теми же блюдами").hasSize(1);
+
+        // Столовая поменяла меню — держать прошлый подбор нельзя, считаем заново.
+        when(canteenClient.today()).thenReturn(Optional.of(new CanteenMenu(List.of(new CanteenDish(
+                "Горячие блюда", "Гречка с курицей", new BigDecimal("140"), new BigDecimal("250"),
+                new BigDecimal("109.5"), new BigDecimal("8"), new BigDecimal("2.5"), new BigDecimal("13.7"),
+                "https://canteen/grechka.jpg")))));
+        send(TelegramInboundMessage.button(nextUpdateId(), telegramId, "lshow:-"), null);
+        verify(recognitionModel, times(2)).adviseLunch(anyString());
         assertThat(help.buttons()).extracting(ReplyButton::text).contains("🍽 Меню столовой");
         assertThat(menu.messages()).hasSize(2);
         assertThat(menu.messages().getLast())
@@ -551,6 +561,7 @@ class TelegramIntakeIntegrationTest {
                 .contains("• Гречка с курицей — 120 ₽, 250 г, 109,5 ккал");
         assertThat(menu.buttons()).as("меню уже открыто — кнопки на него больше нет")
                 .extracting(ReplyButton::text).containsExactly("Не присылать по утрам");
+        assertThat(menu.photos()).as("к списку всего меню фотографии не прикладываем").isEmpty();
     }
 
     @Test

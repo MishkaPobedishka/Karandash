@@ -12,6 +12,7 @@ import org.springframework.web.client.RestClient;
 import java.io.IOException;
 import java.io.InputStream;
 import java.math.BigDecimal;
+import java.time.LocalDate;
 import java.nio.charset.StandardCharsets;
 import java.time.Duration;
 import java.util.List;
@@ -33,7 +34,8 @@ class CanteenClientTest {
             "https://api-gateway.test/api/v1/canteen/menu/?cafe=1";
 
     private final CanteenProperties properties = new CanteenProperties(
-            true, "https://api-gateway.test", 1, "test-token", Duration.ofSeconds(5), null);
+            true, "https://api-gateway.test", 1, "test-token", Duration.ofSeconds(5), null,
+            Duration.ofMinutes(10), null, null);
 
     @Test
     void readsDishesAndSkipsDrinks() throws IOException {
@@ -85,6 +87,31 @@ class CanteenClientTest {
     }
 
     @Test
+    void fingerprintChangesWhenTheCanteenChangesTheMenu() throws IOException {
+        CanteenClient client = new CanteenClient(properties, RestClient.builder());
+        ObjectMapper objectMapper = new ObjectMapper();
+        JsonNode body = objectMapper.readTree(sample());
+        CanteenMenu menu = client.parse(body);
+
+        ((com.fasterxml.jackson.databind.node.ObjectNode) body.path("result").path("categories").get(0)
+                .path("products").get(0)).put("price", 999);
+        CanteenMenu changed = client.parse(body);
+
+        assertThat(menu.fingerprint()).isEqualTo(client.parse(objectMapper.readTree(sample())).fingerprint());
+        assertThat(changed.fingerprint()).isNotEqualTo(menu.fingerprint());
+    }
+
+    @Test
+    void canteenIsClosedOnWeekends() {
+        assertThat(properties.workday(LocalDate.of(2026, 9, 25))).as("пятница").isTrue();
+        assertThat(properties.workday(LocalDate.of(2026, 9, 26))).as("суббота").isFalse();
+        assertThat(properties.workday(LocalDate.of(2026, 9, 27))).as("воскресенье").isFalse();
+        CanteenProperties always = new CanteenProperties(
+                true, null, 1, "t", Duration.ofSeconds(5), null, null, null, false);
+        assertThat(always.workday(LocalDate.of(2026, 9, 26))).as("настройкой выходные можно включить").isTrue();
+    }
+
+    @Test
     void survivesBrokenApi() {
         RestClient.Builder builder = RestClient.builder();
         MockRestServiceServer server = MockRestServiceServer.bindTo(builder).build();
@@ -96,7 +123,8 @@ class CanteenClientTest {
 
     @Test
     void staysQuietWithoutToken() {
-        CanteenProperties noToken = new CanteenProperties(true, null, 1, "", Duration.ofSeconds(5), null);
+        CanteenProperties noToken = new CanteenProperties(
+                true, null, 1, "", Duration.ofSeconds(5), null, null, null, null);
 
         assertThat(new CanteenClient(noToken, RestClient.builder()).today()).isEmpty();
     }

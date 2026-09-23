@@ -57,6 +57,10 @@ karandash:
     cafe: ${CANTEEN_CAFE:1}
     token: ${CANTEEN_TOKEN:}
     timeout: 20s
+    # Как часто перечитываем меню: столовая дополняет его в течение дня.
+    cache: ${CANTEEN_CACHE:10m}
+    # По выходным столовая ЦО закрыта: меню не показываем и рассылку не шлём.
+    weekends-off: ${CANTEEN_WEEKENDS_OFF:true}
     # Подбор обеда уходит по будням утром.
     cron: ${CANTEEN_CRON:0 0 10 * * MON-FRI}
     zone: ${CANTEEN_ZONE:Europe/Moscow}

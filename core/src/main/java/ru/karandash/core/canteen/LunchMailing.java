@@ -23,6 +23,7 @@ public class LunchMailing {
     private static final Logger log = LoggerFactory.getLogger(LunchMailing.class);
 
     private final CanteenClient canteen;
+    private final CanteenProperties properties;
     private final LunchAdvisor advisor;
     private final LunchSubscriptions subscriptions;
     private final LunchContext context;
@@ -32,6 +33,7 @@ public class LunchMailing {
 
     public LunchMailing(
             CanteenClient canteen,
+            CanteenProperties properties,
             LunchAdvisor advisor,
             LunchSubscriptions subscriptions,
             LunchContext context,
@@ -40,6 +42,7 @@ public class LunchMailing {
             TelegramNotifications notifications
     ) {
         this.canteen = canteen;
+        this.properties = properties;
         this.advisor = advisor;
         this.subscriptions = subscriptions;
         this.context = context;
@@ -50,6 +53,10 @@ public class LunchMailing {
 
     @Scheduled(cron = "${karandash.canteen.cron:0 0 10 * * MON-FRI}", zone = "${karandash.canteen.zone:Europe/Moscow}")
     public void sendDailyAdvice() {
+        if (!properties.workday()) {
+            log.info("Рассылка обеда пропущена: выходной, столовая ЦО не работает");
+            return;
+        }
         Optional<CanteenMenu> menu = canteen.today();
         if (menu.isEmpty()) {
             log.info("Рассылка обеда пропущена: меню на сегодня нет");

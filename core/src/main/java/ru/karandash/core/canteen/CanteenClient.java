@@ -25,11 +25,6 @@ import java.util.concurrent.atomic.AtomicReference;
 public class CanteenClient {
 
     private static final Logger log = LoggerFactory.getLogger(CanteenClient.class);
-    /**
-     * Меню за день не меняется, поэтому держим его в памяти. Срок короткий: в меню лежат подписанные
-     * ссылки на фотографии, они живут час, и отдавать почти просроченные не хочется.
-     */
-    private static final Duration CACHE_FOR = Duration.ofMinutes(10);
 
     private final CanteenProperties properties;
     private final RestClient restClient;
@@ -47,7 +42,7 @@ public class CanteenClient {
             return Optional.empty();
         }
         CachedMenu cached = cache.get();
-        if (cached != null && Duration.between(cached.takenAt(), Instant.now()).compareTo(CACHE_FOR) < 0) {
+        if (cached != null && Duration.between(cached.takenAt(), Instant.now()).compareTo(properties.cache()) < 0) {
             return Optional.of(cached.menu());
         }
         try {

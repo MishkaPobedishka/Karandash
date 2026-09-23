@@ -26,7 +26,7 @@ public class LunchContext {
     /**
      * Подбор стоит вызова модели и почти полминуты ожидания, поэтому держим готовый ответ в памяти:
      * вторая кнопка и повторное нажатие отвечают сразу. Кэш сбрасывается, как только человек
-     * что-то записал в дневник, — иначе совет считался бы от устаревшего остатка.
+     * что-то записал в дневник или столовая поменяла меню, — иначе совет был бы про вчерашний день.
      */
     private static final Duration CACHE_FOR = Duration.ofHours(2);
 
@@ -50,8 +50,9 @@ public class LunchContext {
 
     public Optional<LunchSuggestion> suggest(UUID accountId, CanteenMenu menu) {
         DiaryDay today = diary.today(accountId);
+        String fingerprint = menu.fingerprint();
         Cached cached = cache.get(accountId);
-        if (cached != null && cached.stillGood(today)) {
+        if (cached != null && cached.stillGood(today, fingerprint)) {
             return Optional.of(withFreshPhotos(cached.suggestion(), menu));
         }
         long startedAt = System.nanoTime();
@@ -60,7 +61,7 @@ public class LunchContext {
         suggestion.ifPresent(result -> {
             usageRecorder.record(accountId, USAGE_KIND, provider(result), result.usage(),
                     Duration.ofNanos(System.nanoTime() - startedAt));
-            cache.put(accountId, new Cached(result, today, Instant.now()));
+            cache.put(accountId, new Cached(result, today, fingerprint, Instant.now()));
         });
         return suggestion;
     }
@@ -81,13 +82,14 @@ public class LunchContext {
         return new LunchSuggestion(options, suggestion.usage());
     }
 
-    /** Готовый подбор и дневник, по которому он собран. */
-    private record Cached(LunchSuggestion suggestion, DiaryDay diary, Instant at) {
+    /** Готовый подбор, дневник и меню, по которым он собран. */
+    private record Cached(LunchSuggestion suggestion, DiaryDay diary, String menuFingerprint, Instant at) {
 
-        boolean stillGood(DiaryDay today) {
+        boolean stillGood(DiaryDay today, String fingerprint) {
             return diary.date().equals(today.date())
                     && diary.kcalMin() == today.kcalMin()
                     && diary.kcalMax() == today.kcalMax()
+                    && menuFingerprint.equals(fingerprint)
                     && Duration.between(at, Instant.now()).compareTo(CACHE_FOR) < 0;
         }
     }
