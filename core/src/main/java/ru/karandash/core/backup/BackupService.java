@@ -6,6 +6,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.time.Clock;
+import java.util.List;
 import java.util.Optional;
 
 /**
@@ -13,9 +14,6 @@ import java.util.Optional;
  */
 @Service
 public class BackupService {
-
-    /** Пока копия одна — дамп PostgreSQL. Имя понадобится, если появятся другие копии. */
-    public static final String POSTGRES = "postgres";
 
     private static final Logger log = LoggerFactory.getLogger(BackupService.class);
 
@@ -28,20 +26,26 @@ public class BackupService {
     }
 
     @Transactional
-    public void record(String name, BackupReport report) {
-        BackupReportEntity entity = reports.findById(name).orElseGet(() -> new BackupReportEntity(name));
+    public void record(BackupReport report) {
+        BackupReportEntity entity = reports.findById(report.service())
+                .orElseGet(() -> new BackupReportEntity(report.service()));
         entity.apply(report, clock.instant());
         reports.saveAndFlush(entity);
         if (report.ok()) {
-            log.info("Копия базы {}: готова, {} МБ за {} с", name,
+            log.info("Копия {}: готова, {} МБ за {} с", report.service(),
                     report.sizeBytes() / 1_048_576, report.durationMs() / 1000);
         } else {
-            log.warn("Копия базы {} не удалась: {}", name, report.message());
+            log.warn("Копия {} не удалась: {}", report.service(), report.message());
         }
     }
 
     @Transactional(readOnly = true)
-    public Optional<BackupReportEntity> last(String name) {
-        return reports.findById(name);
+    public List<BackupReportEntity> all() {
+        return reports.findAll();
+    }
+
+    @Transactional(readOnly = true)
+    public Optional<BackupReportEntity> last(String service) {
+        return reports.findById(service);
     }
 }

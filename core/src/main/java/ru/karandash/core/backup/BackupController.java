@@ -8,7 +8,7 @@ import org.springframework.web.bind.annotation.ResponseStatus;
 import org.springframework.web.bind.annotation.RestController;
 
 /**
- * Внутренний эндпоинт для ночной копии базы: CronJob сообщает, чем всё кончилось.
+ * Внутренний эндпоинт для ночных копий: CronJob любого сервиса кластера сообщает, чем всё кончилось.
  * Как и остальные {@code /internal/*}, закрыт сервисным токеном.
  */
 @RestController
@@ -24,6 +24,6 @@ class BackupController {
     @PostMapping("/report")
     @ResponseStatus(HttpStatus.ACCEPTED)
     void report(@RequestBody BackupReport report) {
-        backups.record(BackupService.POSTGRES, report);
+        backups.record(report);
     }
 }

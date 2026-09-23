@@ -116,7 +116,7 @@ spec:
                   # Отчёт ядру: из него получаются метрики и алерт.
                   wget -q -O - --header="Authorization: Bearer ${CORE_SERVICE_TOKEN}" \
                     --header="Content-Type: application/json" \
-                    --post-data="{\"ok\":${OK},\"sizeBytes\":${SIZE},\"durationMs\":${DURATION},\"message\":\"${MESSAGE}\"}" \
+                    --post-data="{\"service\":\"karandash\",\"ok\":${OK},\"sizeBytes\":${SIZE},\"durationMs\":${DURATION},\"message\":\"${MESSAGE}\"}" \
                     http://core:8080/internal/backup/report > /dev/null \
                     && echo "==> Отчёт отправлен" || echo "Внимание: отчёт ядру не ушёл"
 

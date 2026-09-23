@@ -158,9 +158,16 @@ Readiness агента включает проверку CLI: если учёт�
 
 Ночной `CronJob backup` в 03:30 по Москве снимает `pg_dump --format=custom` в том `karandash-backups`
 (нода РФ, рядом с базой), проверяет дамп через `pg_restore --list`, удаляет копии старше `KEEP_DAYS`
-и сообщает ядру, чем всё кончилось. Из отчёта получаются метрики `karandash_backup_age_seconds`,
-`karandash_backup_size_bytes`, `karandash_backup_duration_seconds`, `karandash_backup_ok`
-и два алерта: копии нет больше полутора суток и последняя копия не получилась.
+и сообщает ядру, чем всё кончилось. Из отчёта получаются метрики `backup_age_seconds{service=...}`, `backup_size_bytes`,
+`backup_duration_seconds`, `backup_ok`, дашборд **Backups** в Grafana и два алерта:
+копии нет больше полутора суток и последняя копия не получилась.
+
+Отчёт умеет присылать любой сервис кластера, а не только Карандаш, — одной строкой в конце своего
+скрипта копии (сервисный токен ядра, поле `service` различает отправителей):
+
+```sh
+wget -q -O - --header="Authorization: Bearer $CORE_SERVICE_TOKEN"   --header="Content-Type: application/json"   --post-data='{"service":"chimney","ok":true,"sizeBytes":12345,"durationMs":6000,"message":""}'   http://core.karandash.svc.cluster.local:8080/internal/backup/report
+```
 
 Снять копию прямо сейчас:
 

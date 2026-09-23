@@ -8,15 +8,14 @@ import java.time.Clock;
 import java.time.Duration;
 import java.time.Instant;
 import java.time.ZoneOffset;
-import java.util.Optional;
+import java.util.List;
 
 import static org.assertj.core.api.Assertions.assertThat;
-import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
 
 /**
- * Метрики копии базы: пока копии нет — возраст заведомо огромный, чтобы алерт не молчал.
+ * Метрики копий: по строке на сервис, возраст считается от последнего удачного запуска.
  */
 class BackupMetricsTest {
 
@@ -27,41 +26,46 @@ class BackupMetricsTest {
     private final Clock clock = Clock.fixed(NOW, ZoneOffset.UTC);
 
     @Test
-    void reportsHugeAgeWhileThereWasNoBackup() {
-        when(backups.last(anyString())).thenReturn(Optional.empty());
-        BackupMetrics metrics = new BackupMetrics(registry, backups, clock);
+    void reportsHugeAgeWhileThereWasNoSuccessfulBackup() {
+        BackupReportEntity never = new BackupReportEntity("karandash");
+        never.apply(new BackupReport("karandash", false, 0, 900, "pg_dump не отработал"), NOW);
+        when(backups.all()).thenReturn(List.of(never));
 
-        assertThat(metrics.lastSuccessAgeSeconds()).isGreaterThan(Duration.ofDays(300).toSeconds());
-        assertThat(metrics.lastRunOk()).isZero();
-        assertThat(registry.get("karandash.backup.age").gauge().value())
-                .isEqualTo(metrics.lastSuccessAgeSeconds());
+        new BackupMetrics(registry, backups, clock).refresh();
+
+        assertThat(gauge("backup.age", "karandash")).isGreaterThan(Duration.ofDays(300).toSeconds());
+        assertThat(gauge("backup.ok", "karandash")).isZero();
     }
 
     @Test
-    void countsAgeFromLastSuccessNotFromLastRun() {
-        BackupReportEntity report = new BackupReportEntity(BackupService.POSTGRES);
-        report.apply(new BackupReport(true, 5_000_000, 12_000, null), NOW.minus(Duration.ofHours(6)));
+    void countsAgeFromLastSuccessAndKeepsServicesApart() {
+        BackupReportEntity karandash = new BackupReportEntity("karandash");
+        karandash.apply(new BackupReport("karandash", true, 8_388_608, 21_000, null), NOW.minus(Duration.ofHours(6)));
         // Ночью копия не получилась: время последнего успеха от этого не сдвигается.
-        report.apply(new BackupReport(false, 0, 900, "pg_dump не отработал"), NOW.minus(Duration.ofMinutes(30)));
-        when(backups.last(anyString())).thenReturn(Optional.of(report));
-        BackupMetrics metrics = new BackupMetrics(registry, backups, clock);
+        karandash.apply(new BackupReport("karandash", false, 0, 900, "дамп не читается"),
+                NOW.minus(Duration.ofMinutes(30)));
+        BackupReportEntity chimney = new BackupReportEntity("chimney");
+        chimney.apply(new BackupReport("chimney", true, 1_048_576, 4_000, null), NOW.minus(Duration.ofHours(2)));
+        when(backups.all()).thenReturn(List.of(karandash, chimney));
 
-        assertThat(metrics.lastSuccessAgeSeconds()).isEqualTo(Duration.ofHours(6).toSeconds());
-        assertThat(metrics.lastRunOk()).isZero();
-        assertThat(metrics.sizeBytes()).isZero();
-        assertThat(report.getMessage()).isEqualTo("pg_dump не отработал");
+        new BackupMetrics(registry, backups, clock).refresh();
+
+        assertThat(gauge("backup.age", "karandash")).isEqualTo(Duration.ofHours(6).toSeconds());
+        assertThat(gauge("backup.ok", "karandash")).isZero();
+        assertThat(gauge("backup.size", "karandash")).isZero();
+        assertThat(gauge("backup.age", "chimney")).isEqualTo(Duration.ofHours(2).toSeconds());
+        assertThat(gauge("backup.size", "chimney")).isEqualTo(1_048_576);
+        assertThat(gauge("backup.duration", "chimney")).isEqualTo(4.0);
+        assertThat(gauge("backup.ok", "chimney")).isEqualTo(1.0);
     }
 
     @Test
-    void keepsSizeAndDurationOfASuccessfulBackup() {
-        BackupReportEntity report = new BackupReportEntity(BackupService.POSTGRES);
-        report.apply(new BackupReport(true, 8_388_608, 21_000, null), NOW.minus(Duration.ofHours(2)));
-        when(backups.last(anyString())).thenReturn(Optional.of(report));
-        BackupMetrics metrics = new BackupMetrics(registry, backups, clock);
+    void takesServiceNameFromTheReportAndCleansIt() {
+        assertThat(new BackupReport(null, true, 1, 1, null).service()).isEqualTo("karandash");
+        assertThat(new BackupReport("Tracker DB", true, 1, 1, null).service()).isEqualTo("tracker-db");
+    }
 
-        assertThat(metrics.sizeBytes()).isEqualTo(8_388_608);
-        assertThat(metrics.durationSeconds()).isEqualTo(21.0);
-        assertThat(metrics.lastRunOk()).isEqualTo(1.0);
-        assertThat(metrics.lastSuccessAgeSeconds()).isEqualTo(Duration.ofHours(2).toSeconds());
+    private double gauge(String name, String service) {
+        return registry.get(name).tag("service", service).gauge().value();
     }
 }

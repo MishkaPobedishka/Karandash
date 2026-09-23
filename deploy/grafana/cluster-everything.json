@@ -349,7 +349,7 @@
             "type": "prometheus",
             "uid": "prometheus"
           },
-          "expr": "karandash_backup_age_seconds",
+          "expr": "backup_age_seconds{service=\"karandash\"}",
           "legendFormat": "возраст",
           "refId": "A",
           "instant": true,
@@ -360,7 +360,7 @@
             "type": "prometheus",
             "uid": "prometheus"
           },
-          "expr": "karandash_backup_size_bytes",
+          "expr": "backup_size_bytes{service=\"karandash\"}",
           "legendFormat": "размер",
           "refId": "B",
           "instant": true,
