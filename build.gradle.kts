@@ -6,7 +6,7 @@ plugins {
 
 allprojects {
     group = "ru.karandash"
-    version = "0.1.0-SNAPSHOT"
+    version = "1.3"
 
     repositories {
         mavenCentral()
