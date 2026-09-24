@@ -186,7 +186,7 @@
     {
       "id": 4,
       "type": "stat",
-      "title": "Модель Карандаша молчит",
+      "title": "Последний ответ модели",
       "datasource": {
         "type": "prometheus",
         "uid": "prometheus"
@@ -215,24 +215,8 @@
         "defaults": {
           "unit": "s",
           "color": {
-            "mode": "thresholds"
-          },
-          "thresholds": {
-            "mode": "absolute",
-            "steps": [
-              {
-                "color": "green",
-                "value": null
-              },
-              {
-                "color": "yellow",
-                "value": 3600
-              },
-              {
-                "color": "red",
-                "value": 21600
-              }
-            ]
+            "mode": "fixed",
+            "fixedColor": "text"
           }
         },
         "overrides": []
@@ -246,9 +230,9 @@
           "values": false
         },
         "textMode": "auto",
-        "colorMode": "background"
+        "colorMode": "none"
       },
-      "description": "Сколько прошло с последнего удачного вызова модели."
+      "description": "Сколько прошло с последнего удачного вызова модели. Справочно: алерт теперь на ошибки, а не на тишину."
     },
     {
       "id": 5,
@@ -844,7 +828,7 @@
         },
         "overrides": []
       },
-      "description": "Удачные и неудачные вызовы модели."
+      "description": "Удачные и неудачные вызовы модели. Ошибки — то, на что теперь приходит алерт."
     }
   ]
 }

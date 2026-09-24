@@ -1,5 +1,19 @@
 # Приёмщик Telegram — зарубежная нода, ровно одна реплика: второй long polling получит от Telegram 409.
-# Без базы и без Service: наружу ничего не открыто, апдейты забираются исходящим getUpdates.
+# Базы у него нет, а Service нужен только для метрик: Prometheus Дымохода снимает их по этому имени.
+apiVersion: v1
+kind: Service
+metadata:
+  name: telegram-bot
+  labels:
+    app: telegram-bot
+spec:
+  selector:
+    app: telegram-bot
+  ports:
+    - name: metrics
+      port: 8081
+      targetPort: 8081
+---
 apiVersion: apps/v1
 kind: Deployment
 metadata:
