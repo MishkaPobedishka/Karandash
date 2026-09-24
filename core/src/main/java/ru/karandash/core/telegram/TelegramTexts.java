@@ -226,6 +226,21 @@ final class TelegramTexts {
 
     static final String REMINDER_DUE = "%s Пора записать %s. Пришлите фото или опишите словами — посчитаю.";
 
+    static final String SUMMARY_TITLE = "🌙 Итоги дня";
+
+    static final String SUMMARY_EMPTY = "Сегодня в дневнике пусто.";
+
+    static final String STREAK_NONE =
+            "Серии пока нет. Запишите сегодня хоть что-то — с этого она и начнётся.";
+
+    static final String STREAK_KEPT = "🔥 Серия: %d %s подряд. Так держать.";
+
+    static final String STREAK_AT_RISK =
+            "🔥 Серия: %d %s, но сегодня ещё ничего не записано. Пропустить можно ещё %d %s — потом серия обнулится.";
+
+    static final String STREAK_LAST_CHANCE =
+            "🔥 Серия: %d %s и сегодня последний день, чтобы её сохранить. Запишите любую еду.";
+
     static final String BUTTON_REMINDERS = "⏰ Напоминания";
 
     static final String BUTTON_REMINDER_ZONE = "Часовой пояс: %s";

@@ -8,6 +8,7 @@ import ru.karandash.core.account.AccessService;
 import ru.karandash.core.account.AccountAccess;
 import ru.karandash.core.diary.DiaryDay;
 import ru.karandash.core.diary.DiaryService;
+import ru.karandash.core.telegram.EveningSummary;
 import ru.karandash.core.telegram.ReminderDialog;
 import ru.karandash.core.telegram.TelegramNotifications;
 
@@ -34,6 +35,7 @@ public class ReminderMailing {
     private final ReminderService reminders;
     private final DiaryService diary;
     private final ReminderDialog dialog;
+    private final EveningSummary summary;
     private final TelegramNotifications notifications;
 
     public ReminderMailing(
@@ -41,12 +43,14 @@ public class ReminderMailing {
             ReminderService reminders,
             DiaryService diary,
             ReminderDialog dialog,
+            EveningSummary summary,
             TelegramNotifications notifications
     ) {
         this.access = access;
         this.reminders = reminders;
         this.diary = diary;
         this.dialog = dialog;
+        this.summary = summary;
         this.notifications = notifications;
     }
 
@@ -60,14 +64,18 @@ public class ReminderMailing {
                 if (!due(reminder, now.toLocalTime())) {
                     continue;
                 }
-                if (alreadyEaten(account, reminder, now.toLocalDate())) {
+                // Сводка приходит в любом случае: она подводит итог дня, а не зовёт записать еду.
+                if (!reminder.type().isSummary() && alreadyEaten(account, reminder, now.toLocalDate())) {
                     continue;
                 }
                 if (!reminders.claim(account.accountId(), reminder.type(), now.toLocalDate())) {
                     continue;
                 }
-                notifications.notify(account.accountId(), account.telegramId(),
-                        dialog.dueText(reminder.type()), dialog.dueButtons(reminder.type()));
+                String text = reminder.type().isSummary()
+                        ? summary.text(account.accountId(), now.toLocalDate())
+                        : dialog.dueText(reminder.type());
+                notifications.notify(account.accountId(), account.telegramId(), text,
+                        dialog.dueButtons(reminder.type()));
                 sent++;
             }
         }

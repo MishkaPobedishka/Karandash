@@ -661,6 +661,40 @@ class TelegramIntakeIntegrationTest {
     }
 
     @Test
+    void streakStartsWithFirstRecordAndEveningSummaryWarnsAboutIt() {
+        long telegramId = 700_070;
+        allow(telegramId);
+        when(recognitionModel.recognizeTextWithUsage(anyString(), any()))
+                .thenReturn(new ModelRecognition(BUCKWHEAT, ModelUsage.unknown()));
+
+        TelegramReply estimate = send(TelegramInboundMessage.message(nextUpdateId(), telegramId,
+                "гречка с курицей"), null);
+        TelegramReply saved = send(TelegramInboundMessage.button(nextUpdateId(), telegramId,
+                button(estimate, 0)), null);
+        TelegramReply diary = send(TelegramInboundMessage.message(nextUpdateId(), telegramId, "/diary"), null);
+
+        assertThat(saved.messages()).singleElement().asString()
+                .contains("Записал в дневник")
+                .contains("🔥 Серия: 1 день подряд");
+        assertThat(diary.messages()).singleElement().asString().contains("🔥 Серия: 1 день подряд");
+
+        // Вечерняя сводка приходит, даже когда всё записано: она подводит итог дня.
+        UUID accountId = accountOf(telegramId);
+        java.time.LocalTime now = java.time.ZonedDateTime.now(reminderService.zone(accountId)).toLocalTime();
+        reminderService.shift(accountId, ReminderType.EVENING_SUMMARY,
+                (int) java.time.Duration.between(ReminderType.EVENING_SUMMARY.defaultTime(),
+                        now.minusMinutes(1)).toMinutes());
+        for (ReminderType type : List.of(ReminderType.BREAKFAST, ReminderType.LUNCH, ReminderType.DINNER)) {
+            reminderService.toggle(accountId, type);
+        }
+
+        reminderMailing.sendDueReminders();
+
+        assertThat(notificationsFor(telegramId))
+                .anyMatch(text -> text.startsWith("🌙 Итоги дня") && text.contains("🔥 Серия: 1 день"));
+    }
+
+    @Test
     void remindersMenuSwitchesInPlaceAndKeepsUserChoices() {
         long telegramId = 700_050;
         allow(telegramId);
@@ -680,7 +714,7 @@ class TelegramIntakeIntegrationTest {
                 .contains("🍽 Ужин — 20:00")
                 .contains("Часовой пояс: Тюмень");
         assertThat(menu.buttons()).extracting(ReplyButton::data)
-                .containsExactly("rmeal:b", "rmeal:l", "rmeal:d", "rzone:-");
+                .containsExactly("rmeal:b", "rmeal:l", "rmeal:d", "rmeal:s", "rzone:-");
         assertThat(card.messages()).singleElement().asString().contains("Напомню в 08:30");
         assertThat(card.buttons()).extracting(ReplyButton::text)
                 .containsExactly("−1 ч", "−10 мин", "+10 мин", "+1 ч", "Выключить", "← Назад");

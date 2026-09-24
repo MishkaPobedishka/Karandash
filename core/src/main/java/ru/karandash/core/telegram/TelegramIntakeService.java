@@ -29,11 +29,14 @@ import ru.karandash.core.canteen.LunchDialogService;
 import ru.karandash.core.canteen.LunchContext;
 import ru.karandash.core.canteen.LunchSubscriptions;
 import ru.karandash.core.canteen.LunchSuggestion;
+import ru.karandash.core.diary.DiaryDay;
 import ru.karandash.core.diary.DiaryService;
 import ru.karandash.core.diary.DraftSource;
 import ru.karandash.core.diary.MealDraft;
 import ru.karandash.core.diary.MealDraftService;
 import ru.karandash.core.profile.ProfileService;
+import ru.karandash.core.streak.Streak;
+import ru.karandash.core.streak.StreakService;
 import ru.karandash.core.reminder.ReminderType;
 import ru.karandash.core.profile.ProfileSetup;
 import ru.karandash.core.usage.UsageRecorder;
@@ -92,6 +95,7 @@ public class TelegramIntakeService {
     private final CanteenProperties canteenProperties;
     private final LunchDialogService lunchDialogs;
     private final CanteenHints canteenHints;
+    private final StreakService streaks;
     private final ReminderDialog reminderDialog;
     private final MealDraftService drafts;
     private final DiaryService diary;
@@ -116,6 +120,7 @@ public class TelegramIntakeService {
             CanteenProperties canteenProperties,
             LunchDialogService lunchDialogs,
             CanteenHints canteenHints,
+            StreakService streaks,
             ReminderDialog reminderDialog,
             MealDraftService drafts,
             DiaryService diary,
@@ -139,6 +144,7 @@ public class TelegramIntakeService {
         this.canteenProperties = canteenProperties;
         this.lunchDialogs = lunchDialogs;
         this.canteenHints = canteenHints;
+        this.streaks = streaks;
         this.reminderDialog = reminderDialog;
         this.drafts = drafts;
         this.diary = diary;
@@ -261,7 +267,9 @@ public class TelegramIntakeService {
             case "/id", "/whoami" -> TelegramReply.of(
                     TelegramTexts.ACCESS_MY_NUMBER.formatted(account.telegramId()));
             case "/diary", "/дневник" -> TelegramReply.of(diaryFormatter.day(
-                    diary.today(account.accountId()), profiles.dailyTarget(account.accountId())));
+                    diary.today(account.accountId()), profiles.dailyTarget(account.accountId()))
+                    + "\n\n" + EveningSummary.streakLine(
+                            streaks.today(account.accountId(), diary.today(account.accountId()).date())));
             case "/profile", "/профиль" -> profile(account.accountId());
             case "/lunch", "/обед", "/столовая" -> lunch(account.accountId(), false,
                     argument.isBlank() ? null : argument);
@@ -573,7 +581,10 @@ public class TelegramIntakeService {
         if (draft.result().items().isEmpty()) {
             return TelegramReply.of(TelegramTexts.NOTHING_TO_SAVE);
         }
-        String reply = diaryFormatter.saved(diary.record(draft), profiles.dailyTarget(accountId));
+        DiaryDay recorded = diary.record(draft);
+        Streak streak = streaks.record(accountId, recorded.date());
+        String reply = diaryFormatter.saved(recorded, profiles.dailyTarget(accountId))
+                + "\n\n" + EveningSummary.streakLine(streak);
         drafts.discard(accountId);
         log.info("Запись дневника создана: позиций {}, уточнений до записи {}",
                 draft.result().items().size(), draft.revision());

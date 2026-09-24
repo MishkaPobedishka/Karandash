@@ -11,7 +11,9 @@ public enum ReminderType {
 
     BREAKFAST("b", "Завтрак", "🍳", LocalTime.of(8, 30)),
     LUNCH("l", "Обед", "🍲", LocalTime.of(12, 0)),
-    DINNER("d", "Ужин", "🍽", LocalTime.of(20, 0));
+    DINNER("d", "Ужин", "🍽", LocalTime.of(20, 0)),
+    /** Итоги дня: что записано, сколько осталось до нормы и что с серией дней. */
+    EVENING_SUMMARY("s", "Итоги дня", "🌙", LocalTime.of(21, 30));
 
     private final String code;
     private final String title;
@@ -40,6 +42,11 @@ public enum ReminderType {
 
     public LocalTime defaultTime() {
         return defaultTime;
+    }
+
+    /** Сводка приходит, даже если человек всё записал: она и есть итог дня. */
+    public boolean isSummary() {
+        return this == EVENING_SUMMARY;
     }
 
     public static Optional<ReminderType> byCode(String code) {
