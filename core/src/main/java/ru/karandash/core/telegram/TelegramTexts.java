@@ -29,7 +29,8 @@ final class TelegramTexts {
             /changelog — что нового в боте.
             /id — ваш номер в Telegram: он нужен администратору, чтобы открыть доступ.""";
 
-    static final String UNKNOWN_COMMAND = "Такой команды нет. Пришлите фото еды или опишите её словами.";
+    static final String UNKNOWN_COMMAND =
+            "Такой команды нет. Нажмите «☰ Меню» или напишите, что съели — посчитаю.";
 
     static final String TOO_LONG = "Слишком длинное описание. Опишите блюдо короче — до %d символов.";
 
@@ -225,6 +226,19 @@ final class TelegramTexts {
     static final String REMINDER_ZONE_PICK = "Сейчас у вас %s. Выберите свой город:";
 
     static final String REMINDER_DUE = "%s Пора записать %s. Пришлите фото или опишите словами — посчитаю.";
+
+    static final String MENU_TITLE =
+            "Чем помочь? Нажмите кнопку — всё то же самое умеют команды, но кнопками быстрее.";
+
+    static final String BUTTON_MENU = "☰ Меню";
+
+    static final String BUTTON_MENU_DIARY = "📔 Дневник";
+
+    static final String BUTTON_MENU_PROFILE = "👤 Профиль и норма";
+
+    static final String BUTTON_MENU_CHANGELOG = "🆕 Что нового";
+
+    static final String BUTTON_MENU_ADMIN = "🛠 Панель администратора";
 
     static final String SUMMARY_TITLE = "🌙 Итоги дня";
 

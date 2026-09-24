@@ -661,6 +661,29 @@ class TelegramIntakeIntegrationTest {
     }
 
     @Test
+    void mainMenuSwitchesSectionsInOneMessage() {
+        long telegramId = 700_071;
+        allow(telegramId);
+
+        TelegramReply menu = send(TelegramInboundMessage.message(nextUpdateId(), telegramId, "/menu"), null);
+        TelegramReply diary = send(TelegramInboundMessage.button(nextUpdateId(), telegramId, "mdiary:-"), null);
+        TelegramReply back = send(TelegramInboundMessage.button(nextUpdateId(), telegramId, "menu:-"), null);
+        TelegramReply profile = send(TelegramInboundMessage.button(nextUpdateId(), telegramId, "mprof:-"), null);
+
+        assertThat(menu.replaceMessage()).as("меню живёт в одном сообщении").isTrue();
+        assertThat(menu.buttons()).extracting(ReplyButton::data)
+                .containsExactly("lshow:-", "mdiary:-", "rmenu:-", "mprof:-", "mclog:-");
+        assertThat(diary.replaceMessage()).isTrue();
+        assertThat(diary.buttons()).extracting(ReplyButton::text).containsExactly("← Назад");
+        assertThat(back.messages()).singleElement().asString().startsWith("Чем помочь?");
+        assertThat(profile.buttons()).extracting(ReplyButton::text).contains("← Назад");
+
+        // У администратора в меню появляется ещё и его панель.
+        TelegramReply adminMenu = send(TelegramInboundMessage.message(nextUpdateId(), ADMIN, "/menu"), null);
+        assertThat(adminMenu.buttons()).extracting(ReplyButton::data).contains("apanel:-");
+    }
+
+    @Test
     void streakStartsWithFirstRecordAndEveningSummaryWarnsAboutIt() {
         long telegramId = 700_070;
         allow(telegramId);

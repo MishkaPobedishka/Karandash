@@ -48,6 +48,11 @@ record DialogCallback(Action action, String payload) {
         LUNCH_MENU("lmenu"),
         /** Включить или выключить утренний подбор обеда. */
         LUNCH_MAILING("lmail"),
+        /** Главное меню и его разделы. */
+        MENU("menu"),
+        MENU_DIARY("mdiary"),
+        MENU_PROFILE("mprof"),
+        MENU_CHANGELOG("mclog"),
         /** Напоминания про еду: список, карточка приёма пищи, сдвиг времени, выключатель, часовой пояс. */
         REMINDERS("rmenu"),
         REMINDER_MEAL("rmeal"),

@@ -261,9 +261,10 @@ public class TelegramIntakeService {
         String argument = parts.length > 1 ? parts[1].strip() : "";
         return switch (command) {
             case "/start" -> TelegramReply.withButtons(withAdminHint(account, TelegramTexts.GREETING),
-                    List.of(lunchFormatter.menuButton(), reminderDialog.settingsButton()));
+                    List.of(menuButton(), lunchFormatter.menuButton()));
             case "/help" -> TelegramReply.withButtons(withAdminHint(account, TelegramTexts.HELP),
-                    List.of(lunchFormatter.menuButton(), reminderDialog.settingsButton()));
+                    List.of(menuButton(), lunchFormatter.menuButton()));
+            case "/menu", "/меню" -> menu(account);
             case "/id", "/whoami" -> TelegramReply.of(
                     TelegramTexts.ACCESS_MY_NUMBER.formatted(account.telegramId()));
             case "/diary", "/дневник" -> TelegramReply.of(diaryFormatter.day(
@@ -345,6 +346,10 @@ public class TelegramIntakeService {
                         enabled ? TelegramTexts.LUNCH_MAILING_ON : TelegramTexts.LUNCH_MAILING_OFF,
                         List.of(mailingButton(enabled)));
             }
+            case MENU -> menu(account);
+            case MENU_DIARY -> diaryScreen(account.accountId());
+            case MENU_PROFILE -> profileScreen(account.accountId());
+            case MENU_CHANGELOG -> changelogScreen(account);
             case REMINDERS -> reminderDialog.menu(account.accountId());
             case REMINDER_MEAL -> reminderButton(account.accountId(), callback.payload(),
                     type -> reminderDialog.meal(account.accountId(), type));
@@ -532,6 +537,52 @@ public class TelegramIntakeService {
     }
 
     // Норма калорий
+
+    /** Главный экран: отсюда попадают во все разделы, и он же возвращается кнопкой «Назад». */
+    private TelegramReply menu(AccountAccess account) {
+        List<ReplyButton> buttons = new ArrayList<>(List.of(
+                lunchFormatter.menuButton(),
+                new DialogCallback(DialogCallback.Action.MENU_DIARY).button(TelegramTexts.BUTTON_MENU_DIARY),
+                reminderDialog.settingsButton(),
+                new DialogCallback(DialogCallback.Action.MENU_PROFILE).button(TelegramTexts.BUTTON_MENU_PROFILE),
+                new DialogCallback(DialogCallback.Action.MENU_CHANGELOG).button(TelegramTexts.BUTTON_MENU_CHANGELOG)));
+        if (account.admin()) {
+            buttons.add(new DialogCallback(DialogCallback.Action.ADMIN_PANEL)
+                    .button(TelegramTexts.BUTTON_MENU_ADMIN));
+        }
+        return TelegramReply.screen(TelegramTexts.MENU_TITLE, buttons);
+    }
+
+    static ReplyButton menuButton() {
+        return new DialogCallback(DialogCallback.Action.MENU).button(TelegramTexts.BUTTON_MENU);
+    }
+
+    private static ReplyButton backButton() {
+        return new DialogCallback(DialogCallback.Action.MENU).button(TelegramTexts.BUTTON_BACK);
+    }
+
+    private TelegramReply diaryScreen(UUID accountId) {
+        DiaryDay today = diary.today(accountId);
+        String text = diaryFormatter.day(today, profiles.dailyTarget(accountId))
+                + "\n\n" + EveningSummary.streakLine(streaks.today(accountId, today.date()));
+        return TelegramReply.screen(text, List.of(backButton()));
+    }
+
+    private TelegramReply profileScreen(UUID accountId) {
+        return profiles.current(accountId)
+                .map(summary -> TelegramReply.screen(profileDialog.summary(summary),
+                        List.of(ProfileDialog.startButton(true), backButton())))
+                .orElseGet(() -> TelegramReply.screen(TelegramTexts.PROFILE_NOT_SET,
+                        List.of(ProfileDialog.startButton(false), backButton())));
+    }
+
+    private TelegramReply changelogScreen(AccountAccess account) {
+        TelegramReply changelog = adminDialog.changelog(account.admin());
+        List<ReplyButton> buttons = new ArrayList<>(changelog.buttons());
+        buttons.add(backButton());
+        return TelegramReply.screen(changelog.messages().isEmpty() ? TelegramTexts.CHANGELOG_EMPTY
+                : changelog.messages().getFirst(), buttons);
+    }
 
     private TelegramReply profile(UUID accountId) {
         return profiles.current(accountId)

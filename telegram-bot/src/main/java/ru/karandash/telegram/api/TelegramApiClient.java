@@ -137,6 +137,14 @@ public class TelegramApiClient {
                 : caption.substring(0, ReplyPhoto.MAX_CAPTION));
     }
 
+    /**
+     * Список команд для кнопки «Меню» рядом с полем ввода: Telegram показывает его сам,
+     * человеку не нужно помнить, что можно написать.
+     */
+    public void setMyCommands(List<Map<String, String>> commands) {
+        call("setMyCommands", Map.of("commands", commands), objectMapper.constructType(Object.class));
+    }
+
     /** Ответ на нажатие: без него Telegram крутит часы на кнопке до таймаута. */
     public void answerCallbackQuery(String callbackQueryId) {
         call("answerCallbackQuery", Map.of("callback_query_id", callbackQueryId),

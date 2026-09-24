@@ -9,6 +9,7 @@ import ru.karandash.telegram.api.Update;
 
 import java.time.Duration;
 import java.util.List;
+import java.util.Map;
 
 /**
  * Long polling Telegram. Offset подтверждается следующим {@code getUpdates} только после обработки всей пачки:
@@ -25,6 +26,16 @@ public class UpdatePoller implements SmartLifecycle {
     private final PollingState state;
     private final Duration pollTimeout;
     private final boolean enabled;
+
+    /** Что видно в кнопке «Меню» Telegram: порядок тот же, что и в главном экране бота. */
+    private static final List<Map<String, String>> COMMANDS = List.of(
+            Map.of("command", "menu", "description", "Меню бота"),
+            Map.of("command", "lunch", "description", "Что взять на обед в столовой"),
+            Map.of("command", "diary", "description", "Дневник за сегодня"),
+            Map.of("command", "reminders", "description", "Напоминания и итоги дня"),
+            Map.of("command", "profile", "description", "Телосложение, цель и норма калорий"),
+            Map.of("command", "changelog", "description", "Что нового в боте"),
+            Map.of("command", "help", "description", "Как пользоваться"));
 
     private volatile boolean running;
     private Thread thread;
@@ -50,8 +61,18 @@ public class UpdatePoller implements SmartLifecycle {
             log.warn("TELEGRAM_BOT_TOKEN не задан — приём апдейтов из Telegram выключен");
             return;
         }
+        publishCommands();
         running = true;
         thread = Thread.ofPlatform().name("telegram-poller").start(this::loop);
+    }
+
+    /** Список команд обновляем при старте: Telegram помнит его сам, ошибка здесь приёму не мешает. */
+    private void publishCommands() {
+        try {
+            telegram.setMyCommands(COMMANDS);
+        } catch (RuntimeException exception) {
+            log.warn("Список команд не обновлён: {}", exception.getMessage());
+        }
     }
 
     @Override
