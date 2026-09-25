@@ -79,7 +79,8 @@ class AdminDialog {
                 new DialogCallback(DialogCallback.Action.ADMIN_USERS)
                         .button(TelegramTexts.BUTTON_ADMIN_USERS.formatted(allowed)),
                 new DialogCallback(DialogCallback.Action.ADMIN_CHANGELOG)
-                        .button(TelegramTexts.BUTTON_ADMIN_CHANGELOG)));
+                        .button(TelegramTexts.BUTTON_ADMIN_CHANGELOG),
+                new DialogCallback(DialogCallback.Action.MENU).button(TelegramTexts.BUTTON_BACK)));
     }
 
     /** Заявки: на каждого по две кнопки — открыть доступ или отказать. */
@@ -200,7 +201,8 @@ class AdminDialog {
         return access.grant(telegramId, admin.accountId())
                 .map(granted -> {
                     notifications.notify(granted.accountId(), telegramId,
-                            TelegramTexts.ACCESS_GRANTED_BY.formatted(admin.name()));
+                            TelegramTexts.ACCESS_GRANTED_BY.formatted(admin.name()),
+                            TelegramIntakeService.menuButtons(false));
                     return TelegramReply.of(TelegramTexts.ACCESS_GRANTED_ADMIN.formatted(granted.name()));
                 })
                 .orElseGet(() -> TelegramReply.of(TelegramTexts.ACCESS_UNKNOWN_USER));
@@ -280,7 +282,8 @@ class AdminDialog {
 
     private void tellApplicant(AccountAccess applicant, boolean allowed, String adminName) {
         notifications.notify(applicant.accountId(), applicant.telegramId(),
-                allowed ? TelegramTexts.ACCESS_GRANTED_BY.formatted(adminName) : TelegramTexts.ACCESS_DENIED);
+                allowed ? TelegramTexts.ACCESS_GRANTED_BY.formatted(adminName) : TelegramTexts.ACCESS_DENIED,
+                allowed ? TelegramIntakeService.menuButtons(false) : List.of());
     }
 
     private void tellOtherAdmins(AccountAccess decider, AccountAccess applicant, boolean allowed) {

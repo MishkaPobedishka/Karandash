@@ -261,9 +261,9 @@ public class TelegramIntakeService {
         String argument = parts.length > 1 ? parts[1].strip() : "";
         return switch (command) {
             case "/start" -> TelegramReply.withButtons(withAdminHint(account, TelegramTexts.GREETING),
-                    List.of(menuButton(), lunchFormatter.menuButton()));
+                    menuButtons(account.admin()));
             case "/help" -> TelegramReply.withButtons(withAdminHint(account, TelegramTexts.HELP),
-                    List.of(menuButton(), lunchFormatter.menuButton()));
+                    menuButtons(account.admin()));
             case "/menu", "/меню" -> menu(account);
             case "/id", "/whoami" -> TelegramReply.of(
                     TelegramTexts.ACCESS_MY_NUMBER.formatted(account.telegramId()));
@@ -350,6 +350,7 @@ public class TelegramIntakeService {
             case MENU_DIARY -> diaryScreen(account.accountId());
             case MENU_PROFILE -> profileScreen(account.accountId());
             case MENU_CHANGELOG -> changelogScreen(account);
+            case MENU_HOWTO -> TelegramReply.screen(TelegramTexts.HOWTO, List.of(backButton()));
             case REMINDERS -> reminderDialog.menu(account.accountId());
             case REMINDER_MEAL -> reminderButton(account.accountId(), callback.payload(),
                     type -> reminderDialog.meal(account.accountId(), type));
@@ -540,17 +541,23 @@ public class TelegramIntakeService {
 
     /** Главный экран: отсюда попадают во все разделы, и он же возвращается кнопкой «Назад». */
     private TelegramReply menu(AccountAccess account) {
+        return TelegramReply.screen(TelegramTexts.MENU_TITLE, menuButtons(account.admin()));
+    }
+
+    /** Одни и те же разделы: в меню, под приветствием и в сообщении о выданном доступе. */
+    public static List<ReplyButton> menuButtons(boolean admin) {
         List<ReplyButton> buttons = new ArrayList<>(List.of(
-                lunchFormatter.menuButton(),
+                new DialogCallback(DialogCallback.Action.LUNCH_SHOW).button(TelegramTexts.BUTTON_LUNCH_MENU),
                 new DialogCallback(DialogCallback.Action.MENU_DIARY).button(TelegramTexts.BUTTON_MENU_DIARY),
-                reminderDialog.settingsButton(),
+                new DialogCallback(DialogCallback.Action.REMINDERS).button(TelegramTexts.BUTTON_REMINDERS),
                 new DialogCallback(DialogCallback.Action.MENU_PROFILE).button(TelegramTexts.BUTTON_MENU_PROFILE),
+                new DialogCallback(DialogCallback.Action.MENU_HOWTO).button(TelegramTexts.BUTTON_MENU_HOWTO),
                 new DialogCallback(DialogCallback.Action.MENU_CHANGELOG).button(TelegramTexts.BUTTON_MENU_CHANGELOG)));
-        if (account.admin()) {
+        if (admin) {
             buttons.add(new DialogCallback(DialogCallback.Action.ADMIN_PANEL)
                     .button(TelegramTexts.BUTTON_MENU_ADMIN));
         }
-        return TelegramReply.screen(TelegramTexts.MENU_TITLE, buttons);
+        return buttons;
     }
 
     static ReplyButton menuButton() {

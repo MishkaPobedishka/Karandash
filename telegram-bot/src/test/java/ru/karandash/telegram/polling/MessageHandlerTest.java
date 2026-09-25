@@ -43,11 +43,12 @@ class MessageHandlerTest {
     private FakeTelegramServer telegram;
     private MockRestServiceServer core;
     private MessageHandler handler;
+    private RestClient.Builder coreBuilder;
 
     @BeforeEach
     void setUp() throws Exception {
         telegram = new FakeTelegramServer();
-        RestClient.Builder coreBuilder = RestClient.builder()
+        coreBuilder = RestClient.builder()
                 .baseUrl("http://core:8080")
                 .defaultHeaders(headers -> headers.setBearerAuth("core-token"));
         core = MockRestServiceServer.bindTo(coreBuilder).build();
@@ -310,6 +311,33 @@ class MessageHandlerTest {
 
         assertThat(telegram.sentMessages).singleElement()
                 .satisfies(message -> assertThat(message.path("text").asText()).isEqualTo("Сегодня в столовой:"));
+    }
+
+    @Test
+    void tellsThatItIsWorkingWhileCoreThinksAndRemovesTheNoticeAfterwards() throws Exception {
+        // Ядро отвечает не сразу — значит, человек успевает увидеть подсказку.
+        core.expect(requestTo(CORE_URL)).andRespond(request -> {
+            try {
+                Thread.sleep(300);
+            } catch (InterruptedException interrupted) {
+                Thread.currentThread().interrupt();
+            }
+            return withSuccess(REPLY, MediaType.APPLICATION_JSON).createResponse(request);
+        });
+        MessageHandler slowHandler = new MessageHandler(
+                new TelegramApiClient(RestClient.builder().baseUrl(telegram.baseUrl()).build(),
+                        FakeTelegramServer.TOKEN, objectMapper),
+                new CoreClient(coreBuilder.build()),
+                scheduler, 1024 * 1024, java.time.Duration.ZERO);
+
+        slowHandler.handle(update(40, "private", "{\"text\":\"борщ\"}"));
+
+        assertThat(telegram.sentMessages).as("подсказка ушла до ответа ядра")
+                .first().satisfies(message ->
+                        assertThat(message.path("text").asText()).startsWith("Секунду, считаю"));
+        assertThat(telegram.sentMessages).as("сам ответ тоже пришёл")
+                .anyMatch(message -> message.path("text").asText().equals("Похоже на: гречка"));
+        assertThat(telegram.deletedMessages).as("после ответа подсказка убрана").isNotEmpty();
     }
 
     private Update update(long updateId, String chatType, String messageFields) throws Exception {

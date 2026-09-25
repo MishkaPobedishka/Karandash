@@ -80,12 +80,16 @@ public class TelegramApiClient {
         }
     }
 
-    public void sendMessage(long chatId, String text) {
-        sendMessage(chatId, text, List.of());
+    public Long sendMessage(long chatId, String text) {
+        return sendMessage(chatId, text, List.of());
     }
 
-    /** Кнопки идут одна под другой: подписи длинные, в ряд на телефоне они не помещаются. */
-    public void sendMessage(long chatId, String text, List<ReplyButton> buttons) {
+    /**
+     * Кнопки идут одна под другой: подписи длинные, в ряд на телефоне они не помещаются.
+     *
+     * @return номер отправленного сообщения — по нему потом можно убрать временную подсказку
+     */
+    public Long sendMessage(long chatId, String text, List<ReplyButton> buttons) {
         Map<String, Object> body = new LinkedHashMap<>(Map.of(
                 "chat_id", chatId,
                 "text", text.length() <= MESSAGE_LIMIT ? text : text.substring(0, MESSAGE_LIMIT),
@@ -94,7 +98,14 @@ public class TelegramApiClient {
         if (buttons != null && !buttons.isEmpty()) {
             body.put("reply_markup", Map.of("inline_keyboard", keyboard(buttons)));
         }
-        call("sendMessage", body, objectMapper.constructType(Object.class));
+        Message sent = call("sendMessage", body, objectMapper.constructType(Message.class));
+        return sent == null ? null : sent.messageId();
+    }
+
+    /** Убирает своё же сообщение: так исчезает подсказка «секунду, считаю». */
+    public void deleteMessage(long chatId, long messageId) {
+        call("deleteMessage", Map.of("chat_id", chatId, "message_id", messageId),
+                objectMapper.constructType(Boolean.class));
     }
 
     /**

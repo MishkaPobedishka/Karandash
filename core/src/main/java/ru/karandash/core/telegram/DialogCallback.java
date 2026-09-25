@@ -53,6 +53,7 @@ record DialogCallback(Action action, String payload) {
         MENU_DIARY("mdiary"),
         MENU_PROFILE("mprof"),
         MENU_CHANGELOG("mclog"),
+        MENU_HOWTO("mhow"),
         /** Напоминания про еду: список, карточка приёма пищи, сдвиг времени, выключатель, часовой пояс. */
         REMINDERS("rmenu"),
         REMINDER_MEAL("rmeal"),

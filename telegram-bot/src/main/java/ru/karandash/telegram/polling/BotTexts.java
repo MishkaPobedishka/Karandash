@@ -5,6 +5,9 @@ package ru.karandash.telegram.polling;
  */
 final class BotTexts {
 
+    /** Пока модель думает, человек должен видеть, что бот занят, а не молчит. */
+    static final String WORKING = "Секунду, считаю… это занимает до полуминуты.";
+
     static final String UNSUPPORTED = "Пока понимаю только фото еды и текстовое описание. Пришлите одно из двух.";
 
     static final String PHOTO_TOO_LARGE = "Фото слишком большое. Пришлите его обычным фото, не файлом.";

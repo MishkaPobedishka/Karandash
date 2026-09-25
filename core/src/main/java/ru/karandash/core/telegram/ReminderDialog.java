@@ -67,6 +67,7 @@ public class ReminderDialog {
         text.append("\n\n").append(TelegramTexts.REMINDERS_ZONE.formatted(zoneName(zone), now(zone)));
         buttons.add(new DialogCallback(DialogCallback.Action.REMINDER_ZONE)
                 .button(TelegramTexts.BUTTON_REMINDER_ZONE.formatted(zoneName(zone))));
+        buttons.add(new DialogCallback(DialogCallback.Action.MENU).button(TelegramTexts.BUTTON_BACK));
         return TelegramReply.screen(text.toString(), buttons);
     }
 

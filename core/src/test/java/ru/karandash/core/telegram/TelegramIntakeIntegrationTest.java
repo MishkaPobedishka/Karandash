@@ -228,7 +228,7 @@ class TelegramIntakeIntegrationTest {
 
         assertThat(panel.messages()).singleElement().asString().startsWith("Панель администратора.");
         assertThat(panel.buttons()).extracting(ReplyButton::data)
-                .containsExactly("areqs:-", "ausers:-", "aclog:-");
+                .containsExactly("areqs:-", "ausers:-", "aclog:-", "menu:-");
         assertThat(users.replaceMessage()).as("список переключается в том же сообщении").isTrue();
         assertThat(users.buttons()).extracting(ReplyButton::data).contains("apanel:-");
         assertThat(card.messages()).singleElement().asString()
@@ -672,7 +672,7 @@ class TelegramIntakeIntegrationTest {
 
         assertThat(menu.replaceMessage()).as("меню живёт в одном сообщении").isTrue();
         assertThat(menu.buttons()).extracting(ReplyButton::data)
-                .containsExactly("lshow:-", "mdiary:-", "rmenu:-", "mprof:-", "mclog:-");
+                .containsExactly("lshow:-", "mdiary:-", "rmenu:-", "mprof:-", "mhow:-", "mclog:-");
         assertThat(diary.replaceMessage()).isTrue();
         assertThat(diary.buttons()).extracting(ReplyButton::text).containsExactly("← Назад");
         assertThat(back.messages()).singleElement().asString().startsWith("Чем помочь?");
@@ -737,7 +737,7 @@ class TelegramIntakeIntegrationTest {
                 .contains("🍽 Ужин — 20:00")
                 .contains("Часовой пояс: Тюмень");
         assertThat(menu.buttons()).extracting(ReplyButton::data)
-                .containsExactly("rmeal:b", "rmeal:l", "rmeal:d", "rmeal:s", "rzone:-");
+                .containsExactly("rmeal:b", "rmeal:l", "rmeal:d", "rmeal:s", "rzone:-", "menu:-");
         assertThat(card.messages()).singleElement().asString().contains("Напомню в 08:30");
         assertThat(card.buttons()).extracting(ReplyButton::text)
                 .containsExactly("−1 ч", "−10 мин", "+10 мин", "+1 ч", "Выключить", "← Назад");

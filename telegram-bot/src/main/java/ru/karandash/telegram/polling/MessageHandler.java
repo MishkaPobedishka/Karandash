@@ -15,8 +15,10 @@ import ru.karandash.telegram.api.Update;
 import ru.karandash.telegram.core.CoreClient;
 import ru.karandash.telegram.core.CoreUnavailableException;
 
+import java.time.Duration;
 import java.util.Comparator;
 import java.util.List;
+import java.util.concurrent.atomic.AtomicLong;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.ScheduledFuture;
 import java.util.concurrent.TimeUnit;
@@ -31,11 +33,14 @@ public class MessageHandler {
     /** Фото крупнее этого по длинной стороне модель всё равно уменьшит — лишние байты и токены. */
     private static final int PREFERRED_PHOTO_SIDE = 1600;
     private static final long TYPING_REFRESH_SECONDS = 4;
+    /** Через сколько молчания сказать человеку, что бот занят: короткие ответы успевают раньше. */
+    private static final Duration DEFAULT_NOTICE_DELAY = Duration.ofSeconds(3);
 
     private final TelegramApiClient telegram;
     private final CoreClient core;
     private final ScheduledExecutorService typingScheduler;
     private final long maxPhotoBytes;
+    private final Duration noticeDelay;
 
     public MessageHandler(
             TelegramApiClient telegram,
@@ -43,10 +48,72 @@ public class MessageHandler {
             ScheduledExecutorService typingScheduler,
             long maxPhotoBytes
     ) {
+        this(telegram, core, typingScheduler, maxPhotoBytes, DEFAULT_NOTICE_DELAY);
+    }
+
+    MessageHandler(
+            TelegramApiClient telegram,
+            CoreClient core,
+            ScheduledExecutorService typingScheduler,
+            long maxPhotoBytes,
+            Duration noticeDelay
+    ) {
         this.telegram = telegram;
         this.core = core;
         this.typingScheduler = typingScheduler;
         this.maxPhotoBytes = maxPhotoBytes;
+        this.noticeDelay = noticeDelay;
+    }
+
+    /**
+     * Подсказка «секунду, считаю…»: уходит, если ядро думает дольше нескольких секунд,
+     * и убирается, как только пришёл настоящий ответ. Без неё человек видит только «печатает…».
+     */
+    private Waiting startWaiting(long chatId) {
+        AtomicLong noticeId = new AtomicLong();
+        ScheduledFuture<?> typing = startTyping(chatId);
+        ScheduledFuture<?> notice = typingScheduler.schedule(() -> {
+            try {
+                Long sent = telegram.sendMessage(chatId, BotTexts.WORKING);
+                if (sent != null) {
+                    noticeId.set(sent);
+                }
+            } catch (RuntimeException exception) {
+                log.debug("Подсказку об ожидании отправить не удалось");
+            }
+        }, noticeDelay.toMillis(), TimeUnit.MILLISECONDS);
+        return new Waiting(chatId, typing, notice, noticeId);
+    }
+
+    /** Индикатор набора, подсказка об ожидании и её уборка — одним объектом, чтобы не забыть остановить. */
+    private final class Waiting {
+
+        private final long chatId;
+        private final ScheduledFuture<?> typing;
+        private final ScheduledFuture<?> notice;
+        private final AtomicLong noticeId;
+
+        private Waiting(long chatId, ScheduledFuture<?> typing, ScheduledFuture<?> notice, AtomicLong noticeId) {
+            this.chatId = chatId;
+            this.typing = typing;
+            this.notice = notice;
+            this.noticeId = noticeId;
+        }
+
+        private void stop() {
+            typing.cancel(false);
+            notice.cancel(false);
+            long sent = noticeId.get();
+            if (sent == 0) {
+                return;
+            }
+            try {
+                telegram.deleteMessage(chatId, sent);
+            } catch (RuntimeException exception) {
+                // Сообщение могли удалить раньше — на ответ пользователю это не влияет.
+                log.debug("Подсказку об ожидании убрать не удалось");
+            }
+        }
     }
 
     /** Обрабатывает апдейт и никогда не бросает: сбой одного сообщения не должен останавливать приём. */
@@ -76,7 +143,7 @@ public class MessageHandler {
             telegram.sendMessage(chatId, BotTexts.UNSUPPORTED);
             return;
         }
-        ScheduledFuture<?> typing = startTyping(chatId);
+        Waiting waiting = startWaiting(chatId);
         TelegramReply reply;
         try {
             byte[] photo = message.hasPhoto() ? downloadPhoto(message.photo()) : null;
@@ -96,7 +163,7 @@ public class MessageHandler {
             telegram.sendMessage(chatId, BotTexts.CORE_UNAVAILABLE);
             return;
         } finally {
-            typing.cancel(false);
+            waiting.stop();
         }
         if (reply.duplicate()) {
             log.info("Апдейт {} уже обработан ядром — повторный ответ не отправляется", update.updateId());
@@ -125,7 +192,7 @@ public class MessageHandler {
         }
         // Часы на кнопке гасим сразу: ответ ядра вместе с моделью занимает секунды.
         answerQuietly(callback.id());
-        ScheduledFuture<?> typing = startTyping(chatId);
+        Waiting waiting = startWaiting(chatId);
         TelegramReply reply;
         try {
             reply = core.submit(TelegramInboundMessage.button(update.updateId(), callback.from().id(),
@@ -135,7 +202,7 @@ public class MessageHandler {
             telegram.sendMessage(chatId, BotTexts.CORE_UNAVAILABLE);
             return;
         } finally {
-            typing.cancel(false);
+            waiting.stop();
         }
         if (reply.duplicate()) {
             log.info("Апдейт {} уже обработан ядром — повторный ответ не отправляется", update.updateId());
