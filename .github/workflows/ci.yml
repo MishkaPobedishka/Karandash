@@ -47,8 +47,11 @@ jobs:
     needs: tests
     timeout-minutes: 20
     strategy:
+      fail-fast: false
       matrix:
-        service: [core, agent-adapter, telegram-bot, backup]
+        # Образ копий (backup) здесь не собираем: его основа quay.io/minio/mc не тянется
+        # с раннеров GitHub анонимно (401), а на ноде кластера тянется. Он собирается там.
+        service: [core, agent-adapter, telegram-bot]
     steps:
       - uses: actions/checkout@v4
 
@@ -58,8 +61,6 @@ jobs:
         run: |
           if [ "${{ matrix.service }}" = agent-adapter ]; then
             docker build -f agent-adapter/Dockerfile --build-arg CODEX_VERSION=0.154.0 -t karandash-agent-adapter:ci .
-          elif [ "${{ matrix.service }}" = backup ]; then
-            docker build -f backup/Dockerfile -t backup-tools:ci .
           else
             docker build -f ${{ matrix.service }}/Dockerfile -t karandash-${{ matrix.service }}:ci .
           fi
