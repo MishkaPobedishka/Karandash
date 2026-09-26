@@ -54,6 +54,12 @@ record DialogCallback(Action action, String payload) {
         MENU_PROFILE("mprof"),
         MENU_CHANGELOG("mclog"),
         MENU_HOWTO("mhow"),
+        /** Правка дневника: список записей, карточка записи, пересчёт и удаление. */
+        DIARY_LIST("dlist"),
+        DIARY_ENTRY("dent"),
+        DIARY_HALF("dhalf"),
+        DIARY_DOUBLE("ddbl"),
+        DIARY_DELETE("ddel"),
         /** Напоминания про еду: список, карточка приёма пищи, сдвиг времени, выключатель, часовой пояс. */
         REMINDERS("rmenu"),
         REMINDER_MEAL("rmeal"),

@@ -23,6 +23,20 @@ public class FoodItemEntity {
     @Id
     private UUID id;
 
+    /** Детали позиции пересчитываются вместе с записью, иначе в дневнике сойдутся не все числа. */
+    void scale(BigDecimal factor) {
+        this.amountMin = MealEntity.scaleDecimal(amountMin, factor);
+        this.amountMax = MealEntity.scaleDecimal(amountMax, factor);
+        this.kcalMin = MealEntity.scaleInt(kcalMin, factor);
+        this.kcalMax = MealEntity.scaleInt(kcalMax, factor);
+        this.proteinGMin = MealEntity.scaleDecimal(proteinGMin, factor);
+        this.proteinGMax = MealEntity.scaleDecimal(proteinGMax, factor);
+        this.fatGMin = MealEntity.scaleDecimal(fatGMin, factor);
+        this.fatGMax = MealEntity.scaleDecimal(fatGMax, factor);
+        this.carbsGMin = MealEntity.scaleDecimal(carbsGMin, factor);
+        this.carbsGMax = MealEntity.scaleDecimal(carbsGMax, factor);
+    }
+
     @Column(nullable = false)
     private UUID mealId;
 

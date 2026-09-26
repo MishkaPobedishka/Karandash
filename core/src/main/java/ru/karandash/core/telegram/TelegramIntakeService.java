@@ -45,6 +45,7 @@ import java.time.Duration;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Locale;
+import java.math.BigDecimal;
 import java.util.Optional;
 import java.util.UUID;
 import java.util.function.Function;
@@ -59,6 +60,8 @@ import java.util.function.Supplier;
 @EnableConfigurationProperties(TelegramIntakeProperties.class)
 public class TelegramIntakeService {
 
+    /** Пустая строка между смысловыми блоками сообщения. */
+    private static final String NEWLINES = "\n\n";
     /** Сколько кругов уточнений допустимо, прежде чем модель обязана дать оценку. */
     private static final int MAX_CLARIFICATIONS = 1;
     /** Слова, по которым видно, что про столовую именно спрашивают, а не рассказывают. */
@@ -260,8 +263,7 @@ public class TelegramIntakeService {
         }
         String argument = parts.length > 1 ? parts[1].strip() : "";
         return switch (command) {
-            case "/start" -> TelegramReply.withButtons(withAdminHint(account, TelegramTexts.GREETING),
-                    menuButtons(account.admin()));
+            case "/start" -> start(account);
             case "/help" -> TelegramReply.withButtons(withAdminHint(account, TelegramTexts.HELP),
                     menuButtons(account.admin()));
             case "/menu", "/меню" -> menu(account);
@@ -351,6 +353,11 @@ public class TelegramIntakeService {
             case MENU_PROFILE -> profileScreen(account.accountId());
             case MENU_CHANGELOG -> changelogScreen(account);
             case MENU_HOWTO -> TelegramReply.screen(TelegramTexts.HOWTO, List.of(backButton()));
+            case DIARY_LIST -> diaryEditScreen(account.accountId());
+            case DIARY_ENTRY -> diaryEntryScreen(account.accountId(), callback);
+            case DIARY_HALF -> diaryScale(account.accountId(), callback, new BigDecimal("0.5"));
+            case DIARY_DOUBLE -> diaryScale(account.accountId(), callback, new BigDecimal("2"));
+            case DIARY_DELETE -> diaryDelete(account.accountId(), callback);
             case REMINDERS -> reminderDialog.menu(account.accountId());
             case REMINDER_MEAL -> reminderButton(account.accountId(), callback.payload(),
                     type -> reminderDialog.meal(account.accountId(), type));
@@ -539,6 +546,22 @@ public class TelegramIntakeService {
 
     // Норма калорий
 
+    /**
+     * Приветствие. Новичку без профиля сначала предлагаем посчитать норму: без неё половина бота
+     * работает вслепую — и подбор обеда, и итоги дня.
+     */
+    private TelegramReply start(AccountAccess account) {
+        String greeting = withAdminHint(account, TelegramTexts.GREETING);
+        if (profiles.current(account.accountId()).isEmpty()) {
+            return TelegramReply.withButtons(greeting + NEWLINES + TelegramTexts.ONBOARDING_PROFILE,
+                    List.of(ProfileDialog.startButton(false),
+                            new DialogCallback(DialogCallback.Action.MENU_HOWTO)
+                                    .button(TelegramTexts.BUTTON_MENU_HOWTO),
+                            menuButton()));
+        }
+        return TelegramReply.withButtons(greeting, menuButtons(account.admin()));
+    }
+
     /** Главный экран: отсюда попадают во все разделы, и он же возвращается кнопкой «Назад». */
     private TelegramReply menu(AccountAccess account) {
         return TelegramReply.screen(TelegramTexts.MENU_TITLE, menuButtons(account.admin()));
@@ -568,11 +591,77 @@ public class TelegramIntakeService {
         return new DialogCallback(DialogCallback.Action.MENU).button(TelegramTexts.BUTTON_BACK);
     }
 
+    /** Список записей за сегодня: по кнопке на запись. */
+    private TelegramReply diaryEditScreen(UUID accountId) {
+        DiaryDay today = diary.today(accountId);
+        if (today.isEmpty()) {
+            return diaryScreen(accountId);
+        }
+        List<ReplyButton> buttons = new ArrayList<>();
+        for (DiaryDay.Entry entry : today.entries()) {
+            buttons.add(new DialogCallback(DialogCallback.Action.DIARY_ENTRY, entry.id())
+                    .button(diaryFormatter.entryButton(entry)));
+        }
+        buttons.add(new DialogCallback(DialogCallback.Action.MENU_DIARY).button(TelegramTexts.BUTTON_BACK));
+        return TelegramReply.screen(TelegramTexts.DIARY_EDIT_TITLE, buttons);
+    }
+
+    /** Карточка записи: пересчитать порцию или удалить. */
+    private TelegramReply diaryEntryScreen(UUID accountId, DialogCallback callback) {
+        return callback.uuidPayload()
+                .flatMap(id -> diary.today(accountId).find(id))
+                .map(entry -> TelegramReply.screen(diaryFormatter.entry(entry), List.of(
+                        new DialogCallback(DialogCallback.Action.DIARY_HALF, entry.id())
+                                .button(TelegramTexts.BUTTON_DIARY_HALF),
+                        new DialogCallback(DialogCallback.Action.DIARY_DOUBLE, entry.id())
+                                .button(TelegramTexts.BUTTON_DIARY_DOUBLE),
+                        new DialogCallback(DialogCallback.Action.DIARY_DELETE, entry.id())
+                                .button(TelegramTexts.BUTTON_DIARY_DELETE),
+                        new DialogCallback(DialogCallback.Action.DIARY_LIST).button(TelegramTexts.BUTTON_BACK))))
+                .orElseGet(() -> diaryEditScreen(accountId));
+    }
+
+    private TelegramReply diaryScale(UUID accountId, DialogCallback callback, BigDecimal factor) {
+        Optional<UUID> id = callback.uuidPayload();
+        if (id.isEmpty()) {
+            return diaryEditScreen(accountId);
+        }
+        DiaryDay day = diary.scale(accountId, id.get(), factor);
+        String what = day.find(id.get()).map(DiaryDay.Entry::title).orElse("запись");
+        return TelegramReply.screen(TelegramTexts.DIARY_SCALED.formatted(what) + "\n\n"
+                + diaryFormatter.day(day, profiles.dailyTarget(accountId)), List.of(
+                new DialogCallback(DialogCallback.Action.DIARY_LIST).button(TelegramTexts.BUTTON_DIARY_EDIT),
+                backButton()));
+    }
+
+    private TelegramReply diaryDelete(UUID accountId, DialogCallback callback) {
+        Optional<UUID> id = callback.uuidPayload();
+        if (id.isEmpty()) {
+            return diaryEditScreen(accountId);
+        }
+        DiaryDay day = diary.delete(accountId, id.get());
+        String text = TelegramTexts.DIARY_DELETED + "\n\n"
+                + diaryFormatter.day(day, profiles.dailyTarget(accountId));
+        List<ReplyButton> buttons = new ArrayList<>();
+        if (!day.isEmpty()) {
+            buttons.add(new DialogCallback(DialogCallback.Action.DIARY_LIST)
+                    .button(TelegramTexts.BUTTON_DIARY_EDIT));
+        }
+        buttons.add(backButton());
+        return TelegramReply.screen(text, buttons);
+    }
+
     private TelegramReply diaryScreen(UUID accountId) {
         DiaryDay today = diary.today(accountId);
         String text = diaryFormatter.day(today, profiles.dailyTarget(accountId))
                 + "\n\n" + EveningSummary.streakLine(streaks.today(accountId, today.date()));
-        return TelegramReply.screen(text, List.of(backButton()));
+        List<ReplyButton> buttons = new ArrayList<>();
+        if (!today.isEmpty()) {
+            buttons.add(new DialogCallback(DialogCallback.Action.DIARY_LIST)
+                    .button(TelegramTexts.BUTTON_DIARY_EDIT));
+        }
+        buttons.add(backButton());
+        return TelegramReply.screen(text, buttons);
     }
 
     private TelegramReply profileScreen(UUID accountId) {
@@ -625,7 +714,11 @@ public class TelegramIntakeService {
             return profileDialog.question(profiles.saveSetup(accountId, setup));
         }
         log.info("Норма калорий посчитана по формуле Миффлина — Сан Жеора");
-        return TelegramReply.of(profileDialog.summary(profiles.complete(accountId, setup.answers())));
+        String summary = profileDialog.summary(profiles.complete(accountId, setup.answers()));
+        return TelegramReply.withButtons(summary + NEWLINES + TelegramTexts.ONBOARDING_FIRST_MEAL,
+                List.of(new DialogCallback(DialogCallback.Action.MENU_HOWTO)
+                                .button(TelegramTexts.BUTTON_MENU_HOWTO),
+                        menuButton()));
     }
 
     private TelegramReply withQuestion(String note, ProfileSetup setup) {

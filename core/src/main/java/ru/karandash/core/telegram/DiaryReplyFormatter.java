@@ -18,6 +18,8 @@ import static ru.karandash.core.telegram.RecognitionReplyFormatter.range;
 public class DiaryReplyFormatter {
 
     private static final DateTimeFormatter TIME = DateTimeFormatter.ofPattern("HH:mm");
+    /** Подписи длиннее этого Telegram обрезает сам, и кнопка выглядит сломанной. */
+    private static final int BUTTON_TEXT_LIMIT = 60;
 
     /** Ответ сразу после нажатия «Записать в дневник». */
     public String saved(DiaryDay day, Optional<DailyTarget> target) {
@@ -29,6 +31,23 @@ public class DiaryReplyFormatter {
         return day.isEmpty()
                 ? TelegramTexts.DIARY_EMPTY + target.map(DiaryReplyFormatter::targetLine).orElse("")
                 : limit("Сегодня в дневнике:\n\n" + body(day, target), TELEGRAM_MESSAGE_LIMIT);
+    }
+
+    /** Подпись кнопки в списке правки: время, блюдо и калории, обрезанные до предела Telegram. */
+    public String entryButton(DiaryDay.Entry entry) {
+        String kcal = entry.kcalMin() == null || entry.kcalMax() == null
+                ? ""
+                : " — " + range(entry.kcalMin(), entry.kcalMax()) + " ккал";
+        return limit(TIME.format(entry.time()) + " " + entry.title() + kcal, BUTTON_TEXT_LIMIT);
+    }
+
+    /** Карточка одной записи перед правкой. */
+    public String entry(DiaryDay.Entry entry) {
+        StringBuilder text = new StringBuilder(TIME.format(entry.time())).append(" · ").append(entry.title());
+        if (entry.kcalMin() != null && entry.kcalMax() != null) {
+            text.append("\n\n").append(range(entry.kcalMin(), entry.kcalMax())).append(" ккал");
+        }
+        return text.toString();
     }
 
     private static String body(DiaryDay day, Optional<DailyTarget> target) {

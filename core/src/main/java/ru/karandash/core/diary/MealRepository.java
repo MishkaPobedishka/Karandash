@@ -9,4 +9,6 @@ import java.util.UUID;
 interface MealRepository extends JpaRepository<MealEntity, UUID> {
 
     List<MealEntity> findByAccountIdAndLocalDateOrderByLocalTime(UUID accountId, LocalDate localDate);
+
+    java.util.Optional<MealEntity> findByIdAndAccountId(UUID id, UUID accountId);
 }

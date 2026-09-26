@@ -60,6 +60,29 @@ public class DiaryService {
         return day(draft.accountId(), now.toLocalDate());
     }
 
+    /**
+     * Удаляет запись дневника. Позиции внутри уходят каскадом самой базы.
+     * Серию дней это не сбрасывает: день уже был засчитан, отбирать его за исправление нечестно.
+     */
+    @Transactional
+    public DiaryDay delete(UUID accountId, UUID mealId) {
+        meals.findByIdAndAccountId(mealId, accountId).ifPresent(meals::delete);
+        return today(accountId);
+    }
+
+    /** Пересчитывает запись: половина порции, двойная — что угодно, лишь бы множитель был разумным. */
+    @Transactional
+    public DiaryDay scale(UUID accountId, UUID mealId, BigDecimal factor) {
+        meals.findByIdAndAccountId(mealId, accountId).ifPresent(meal -> {
+            meal.scale(factor);
+            meals.save(meal);
+            List<FoodItemEntity> items = foodItems.findByMealId(mealId);
+            items.forEach(item -> item.scale(factor));
+            foodItems.saveAll(items);
+        });
+        return today(accountId);
+    }
+
     @Transactional(readOnly = true)
     public DiaryDay today(UUID accountId) {
         return day(accountId, LocalDate.ofInstant(clock.instant(), properties.zone()));
@@ -75,7 +98,8 @@ public class DiaryService {
         int kcalMin = 0;
         int kcalMax = 0;
         for (MealEntity meal : dayMeals) {
-            entries.add(new DiaryDay.Entry(meal.getLocalTime(), title(meal, itemsByMeal.get(meal.getId())),
+            entries.add(new DiaryDay.Entry(meal.getId(), meal.getLocalTime(),
+                    title(meal, itemsByMeal.get(meal.getId())),
                     meal.getKcalMin(), meal.getKcalMax()));
             kcalMin += meal.getKcalMin() == null ? 0 : meal.getKcalMin();
             kcalMax += meal.getKcalMax() == null ? 0 : meal.getKcalMax();

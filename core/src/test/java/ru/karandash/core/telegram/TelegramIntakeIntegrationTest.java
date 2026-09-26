@@ -661,6 +661,54 @@ class TelegramIntakeIntegrationTest {
     }
 
     @Test
+    void diaryEntryCanBeHalvedAndDeleted() {
+        long telegramId = 700_080;
+        allow(telegramId);
+        when(recognitionModel.recognizeTextWithUsage(anyString(), any()))
+                .thenReturn(new ModelRecognition(BUCKWHEAT, ModelUsage.unknown()));
+
+        TelegramReply estimate = send(TelegramInboundMessage.message(nextUpdateId(), telegramId,
+                "гречка с курицей"), null);
+        send(TelegramInboundMessage.button(nextUpdateId(), telegramId, button(estimate, 0)), null);
+        TelegramReply diary = send(TelegramInboundMessage.button(nextUpdateId(), telegramId, "mdiary:-"), null);
+        TelegramReply list = send(TelegramInboundMessage.button(nextUpdateId(), telegramId, "dlist:-"), null);
+        String entryButton = list.buttons().getFirst().data();
+        TelegramReply card = send(TelegramInboundMessage.button(nextUpdateId(), telegramId, entryButton), null);
+
+        assertThat(diary.buttons()).extracting(ReplyButton::text).contains("✏️ Исправить записи");
+        assertThat(list.messages()).singleElement().asString().isEqualTo("Какую запись исправить?");
+        assertThat(entryButton).startsWith("dent:");
+        assertThat(card.buttons()).extracting(ReplyButton::text)
+                .containsExactly("½ Съел половину", "×2 Порция была двойная", "🗑 Удалить запись", "← Назад");
+
+        String mealId = entryButton.substring("dent:".length());
+        int before = kcalOf(telegramId);
+        TelegramReply halved = send(TelegramInboundMessage.button(nextUpdateId(), telegramId,
+                "dhalf:" + mealId), null);
+        assertThat(halved.messages()).singleElement().asString().startsWith("Пересчитал:");
+        assertThat(kcalOf(telegramId)).as("половина порции").isEqualTo(before / 2);
+
+        TelegramReply deleted = send(TelegramInboundMessage.button(nextUpdateId(), telegramId,
+                "ddel:" + mealId), null);
+        assertThat(deleted.messages()).singleElement().asString().startsWith("Удалил запись.");
+        assertThat(meals(telegramId)).isZero();
+    }
+
+    @Test
+    void newcomerIsLedToTheirNormFirst() {
+        long telegramId = 700_081;
+        allow(telegramId);
+
+        TelegramReply start = send(TelegramInboundMessage.message(nextUpdateId(), telegramId, "/start"), null);
+
+        assertThat(start.messages()).singleElement().asString()
+                .contains("Сначала посчитаем вашу норму калорий");
+        assertThat(start.buttons()).extracting(ReplyButton::data)
+                .as("первым делом анкета, а не список разделов")
+                .containsExactly("pnew:-", "mhow:-", "menu:-");
+    }
+
+    @Test
     void mainMenuSwitchesSectionsInOneMessage() {
         long telegramId = 700_071;
         allow(telegramId);
@@ -906,6 +954,15 @@ class TelegramIntakeIntegrationTest {
         TelegramReply granted = send(
                 TelegramInboundMessage.message(nextUpdateId(), ADMIN, "/grant " + telegramId), null);
         assertThat(granted.messages()).singleElement().asString().startsWith("Доступ выдан");
+    }
+
+    /** Сумма калорий за сегодня: по ней видно, что пересчёт порции доехал до базы. */
+    private int kcalOf(long telegramId) {
+        Integer kcal = jdbc.queryForObject("""
+                select coalesce(sum(m.kcal_max), 0) from meal m
+                join telegram_identity t on t.account_id = m.account_id where t.telegram_id = ?""",
+                Integer.class, telegramId);
+        return kcal == null ? 0 : kcal;
     }
 
     private int meals(long telegramId) {

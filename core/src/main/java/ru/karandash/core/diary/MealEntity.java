@@ -108,6 +108,30 @@ public class MealEntity {
         this.carbsGMax = carbsGMax;
     }
 
+    /** Пересчёт порции: «съел половину» и «была двойная» — самые частые поправки. */
+    void scale(BigDecimal factor) {
+        this.kcalMin = scaleInt(kcalMin, factor);
+        this.kcalMax = scaleInt(kcalMax, factor);
+        this.kcalLikely = kcalMin == null || kcalMax == null ? null : (kcalMin + kcalMax) / 2;
+        this.proteinGMin = scaleDecimal(proteinGMin, factor);
+        this.proteinGMax = scaleDecimal(proteinGMax, factor);
+        this.fatGMin = scaleDecimal(fatGMin, factor);
+        this.fatGMax = scaleDecimal(fatGMax, factor);
+        this.carbsGMin = scaleDecimal(carbsGMin, factor);
+        this.carbsGMax = scaleDecimal(carbsGMax, factor);
+        this.updatedAt = Instant.now();
+    }
+
+    static Integer scaleInt(Integer value, BigDecimal factor) {
+        return value == null
+                ? null
+                : BigDecimal.valueOf(value).multiply(factor).setScale(0, java.math.RoundingMode.HALF_UP).intValue();
+    }
+
+    static BigDecimal scaleDecimal(BigDecimal value, BigDecimal factor) {
+        return value == null ? null : value.multiply(factor).setScale(2, java.math.RoundingMode.HALF_UP);
+    }
+
     public UUID getId() {
         return id;
     }
